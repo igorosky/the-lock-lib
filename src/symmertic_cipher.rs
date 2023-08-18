@@ -1,95 +1,116 @@
-use std::fs::File;
-use std::path::Path;
-use std::io::prelude::*;
+use std::io::prelude::{Read, Write};
 
-use rsa::pss::{SigningKey, Signature};
-use rsa::signature::{RandomizedSigner, SignatureEncoding};
-use rsa::rand_core::OsRng;
-use rsa::rand_core::RngCore;
-use libaes::{Cipher, AES_256_KEY_LEN};
-use rsa::sha2::Sha512;
+use chacha20poly1305::{XChaCha20Poly1305, aead::stream::DecryptorBE32};
+use chacha20poly1305::aead::stream::EncryptorBE32;
+use chacha20poly1305::aead::KeyInit;
+use sha2::{Sha512, Digest};
 
-use crate::manifest_models::{SingleEncryptedFile, Signable};
-use crate::manifest_models::SingleEncryptedFilePiece;
-use crate::results::JustError;
+use crate::models::symmetric_key::SymmetricKey;
 
 use super::results::SResult;
 
 
 pub struct SymmetricCipher {
-    // key: [u8; AES_256_KEY_LEN],
-    cipher: Cipher,
-    iv: Vec<u8>,
-    pub file_part_size: u64,
+    pub buffor_size: usize,
 }
 
 impl SymmetricCipher {
-    pub fn new(key: [u8; AES_256_KEY_LEN], iv: Vec<u8>) -> Self {
-        Self { /*key: key,*/ cipher: Cipher::new_256(&key), iv: iv, file_part_size: 256*1024*1024 }
+    pub fn new() -> Self {
+        Self { buffor_size: 256*1024*1024 }
     }
 
-    fn sign_buf<P: AsRef<Path>>(signer: &SigningKey<Sha512>, buf: &Vec<u8>, signature_path: P) -> SResult<()> {
-        let signature: Signature = signer.sign_with_rng(&mut rsa::rand_core::OsRng, &buf);
-        File::create(signature_path.as_ref())?.write(signature.to_bytes().as_ref())?;
-        Ok(())
+    pub fn new_with_buffor_size(buffor_size: usize) -> Self {
+        Self { buffor_size: buffor_size }
     }
 
-    pub fn encrypt_file(&self, src: &Path, dst_dic: &Path, signer_opt: Option<&SigningKey<Sha512>>) -> SResult<SingleEncryptedFile> {
-        let mut file_pieces = Vec::new();
-        let mut file = File::open(src)?;
-        let file_size = file.metadata().unwrap().len();
-        let mut buf = Vec::new();
-        file_pieces.reserve_exact((file_size/self.file_part_size) as usize + 1);
-        for i in 0..file_size/self.file_part_size {
-            buf.resize(self.file_part_size as usize, 0);
-            file.read_exact(buf.as_mut()).unwrap();
-            let mut file_piece = SingleEncryptedFilePiece::new(Box::from(dst_dic.join(format!("wrapper.{}", i)).as_path()));
-            if let Some(signer) = signer_opt {
-                file_piece.signed(dst_dic.join(format!("wrapper.{}.signature", i)).as_path());
-                Self::sign_buf(signer, &buf, file_piece.get_signature_path().unwrap())?;
+    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
+        let mut cipher = EncryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
+        let buffor_size = self.buffor_size;
+        let mut buffor = vec![0; buffor_size];
+        let mut count = src.read(&mut buffor)?;
+        let mut hasher = Sha512::new();
+        loop {
+            if count == buffor_size {
+                hasher.update(&buffor);
+                cipher.encrypt_next_in_place(associated_data, &mut buffor).unwrap();
+                dst.write(&buffor)?;
+                buffor.resize(buffor_size, 0);
+                count = src.read(&mut buffor)?;
             }
-            File::create(file_piece.get_path())?.write(self.cipher.cbc_encrypt(&self.iv, &buf).as_ref())?;
-            file_pieces.push(file_piece);
-        }
-        if file_size%self.file_part_size != 0 {
-            buf.clear();
-            file.read_to_end(&mut buf).unwrap();
-            let mut file_piece = SingleEncryptedFilePiece::new(Box::from(dst_dic.join(format!("wrapper.{}", file_size/self.file_part_size)).as_path()));
-            if let Some(signer) = signer_opt {
-                file_piece.signed(dst_dic.join(format!("wrapper.{}.signature", file_size/self.file_part_size)).as_path());
-                Self::sign_buf(signer, &buf, file_piece.get_signature_path().unwrap())?;
+            else {
+                buffor.resize(count, 0);
+                hasher.update(&buffor);
+                cipher.encrypt_last_in_place(associated_data, &mut buffor).unwrap();
+                dst.write(&buffor)?;
+                break;
             }
-            File::create(file_piece.get_path())?.write(self.cipher.cbc_encrypt(&self.iv, &buf).as_ref())?;
-            file_pieces.push(file_piece);
         }
-        Ok(SingleEncryptedFile::new(src.file_name().ok_or(JustError::new("No file name!".to_owned()))?.to_os_string(), file_pieces))
+        let mut ans = Box::new([0; 64]);
+        for (i, v) in hasher.finalize().into_iter().enumerate() {
+            ans[i] = v;
+        }
+        Ok(ans)
     }
-    
-    pub fn get_256_key() -> SResult<[u8; 32]> {
-        let mut key = [0; AES_256_KEY_LEN];
-        OsRng.fill_bytes(&mut key);
-        Ok(key)
+
+    pub fn decrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
+        let mut cipher = DecryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
+        let buffor_size = self.buffor_size + 16;    // + 16 becouse thats what chacha adds - magic value
+        let mut buffor = vec![0; buffor_size];
+        let mut count = src.read(&mut buffor)?;
+        let mut hasher = Sha512::new();
+        loop {
+            if count == buffor.len() {
+                cipher.decrypt_next_in_place(associated_data, &mut buffor).unwrap();
+                dst.write(&buffor)?;
+                hasher.update(&buffor);
+                buffor.resize(buffor_size, 0);
+                count = src.read(&mut buffor)?;
+            }
+            else if count != 0 {
+                buffor.resize(count, 0);
+                cipher.decrypt_last_in_place(associated_data, &mut buffor).unwrap();
+                dst.write(&buffor)?;
+                hasher.update(&buffor);
+                break;
+            }
+            else {
+                break;
+            }
+        }
+        let mut ans = Box::new([0; 64]);
+        for (i, v) in hasher.finalize().into_iter().enumerate() {
+            ans[i] = v;
+        }
+        Ok(ans)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
+    use std::{path::Path, fs::File};
 
-    use rsa::sha2::Sha512;
-
-    use crate::symmertic_cipher::SymmetricCipher;
-
-    #[test]
-    fn randomness_test() {
-        assert_ne!(SymmetricCipher::get_256_key().unwrap(), SymmetricCipher::get_256_key().unwrap());
-    }
+    use crate::{symmertic_cipher::SymmetricCipher, models::symmetric_key::SymmetricKey};
 
     #[test]
     fn encryptiom_test() {
-        let sc = SymmetricCipher::new(SymmetricCipher::get_256_key().expect("Symmetric key generation"), b"jsjsjsjsjsjsjsjs".to_vec());
-        println!("{:?}", sc.encrypt_file(
-            Path::new("test.zip"), Path::new("D:\\Pulpit I\\Igor\\C++\\Projects\\TheLock\\rust-crate\\the-lock\\test_tmp"),
-            Some(&rsa::pss::SigningKey::<Sha512>::new(rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).expect("Key generating")))).expect("File encryption"));
+        let src_file = Path::new("test.zip");
+        let encrypted_file = Path::new("test.encrypted");
+        let dst_file = Path::new("test3.zip");
+        let sc = SymmetricCipher::new();
+        let key = SymmetricKey::new();
+        assert_eq!(
+            sc.encrypt_file(
+                &key,
+                b"123",
+                &mut File::open(src_file).expect("File source"),
+                &mut File::create(encrypted_file).expect("File dst")
+            ).expect("Encryption Fail"),
+            sc.decrypt_file(
+                &key,
+                b"123",
+                &mut File::open(encrypted_file).expect("File source"),
+                &mut File::create(dst_file).expect("File dst")
+            ).expect("Decryption Fail")
+        );
     }
 }

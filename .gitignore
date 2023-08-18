@@ -2,3 +2,4 @@
 target
 test*
 manifest
+src/manifest_models.rs
