@@ -19,11 +19,11 @@ impl SymmetricCipher {
         Self { buffor_size: 256*1024*1024 }
     }
 
-    pub fn new_with_buffor_size(buffor_size: usize) -> Self {
-        Self { buffor_size: buffor_size }
-    }
+    // pub fn new_with_buffor_size(buffor_size: usize) -> Self {
+    //     Self { buffor_size: buffor_size }
+    // }
 
-    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
+    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
         let mut cipher = EncryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
         let buffor_size = self.buffor_size;
         let mut buffor = vec![0; buffor_size];
@@ -93,9 +93,9 @@ mod test {
 
     #[test]
     fn encryptiom_test() {
-        let src_file = Path::new("test.zip");
-        let encrypted_file = Path::new("test.encrypted");
-        let dst_file = Path::new("test3.zip");
+        let src_file = Path::new("testing/test.zip");
+        let encrypted_file = Path::new("testing/test.encrypted");
+        let dst_file = Path::new("testing/test3.zip");
         let sc = SymmetricCipher::new();
         let key = SymmetricKey::new();
         assert_eq!(
