@@ -1,4 +1,3 @@
-// extern crate tempdir;
 extern crate serde_json;
 extern crate libaes;
 extern crate rsa;
@@ -7,52 +6,76 @@ extern crate sha2;
 extern crate rand;
 extern crate argon2;
 
-use std::fs::File;
+use std::borrow::BorrowMut;
+use std::{fs::File, fmt::Display};
 use std::io::Read;
 use std::io::prelude::Write;
 use std::path::Path;
-use models::{symmetric_key::SymmetricKey, directory_content::DirectoryContent};
-use rsa::{RsaPublicKey, Oaep, RsaPrivateKey};
-use symmertic_cipher::SymmetricCipher;
-// use tempdir::TempDir;
+use rsa::{RsaPublicKey, Oaep, RsaPrivateKey, Pss};
+use sha2::Sha512;
 use zip::{ZipArchive, ZipWriter, write::FileOptions};
 use rand::rngs::OsRng;
 
-mod manifest_models;
 mod symmertic_cipher;
-mod results;
-mod models;
+mod directory_content;
 pub mod rsa_private_key_serializer;
 
-use results::{SResult, JustError};
+use directory_content::DirectoryContent;
+use symmertic_cipher::{SymmetricCipher, SymmetricKey};
 
 const FILE_CONETENT_NAME: &str = "file";
 const FILE_KEY_NAME: &str = "key";
 const FILE_SIGNATURE_NAME: &str = "signature";
 
+type SResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EncryptedFileError {
+    FileAlreadyExists,
+    InvalidSignatureFile,
+    FileDoesNotExist,
+    FileIsNotSigned,
+    FileKeyIsMissing,
+    FileContentIsMissing,
+}
+
+impl Display for EncryptedFileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            EncryptedFileError::FileAlreadyExists => "FileAlreadyExists",
+            EncryptedFileError::InvalidSignatureFile => "InvalidSignatureFile",
+            EncryptedFileError::FileDoesNotExist => "FileDoesNotExist",
+            EncryptedFileError::FileIsNotSigned => "FileIsNotSigned",
+            EncryptedFileError::FileKeyIsMissing => "FileKeyIsMissing",
+            EncryptedFileError::FileContentIsMissing => "FileContentIsMissing",
+        })
+    }
+}
+
+impl std::error::Error for EncryptedFileError { }
+
 pub struct EncryptedFile {
     file: File,
     directory_content: Option<DirectoryContent>,
-    // tmp_dir: TempDir,
-    // manifest: Option<Box<Manifest>>,
+    symmetric_cipher: SymmetricCipher,
 }
 
 impl EncryptedFile {
     pub fn new<P: AsRef<Path>>(path: P) -> SResult<Self> {
         let path = path.as_ref();
-        // let mut manifest_opt = None;
         if !path.exists() {
             let file = File::create(path)?;
             ZipWriter::new(file);
-            // let mut zip = ZipWriter::new(file);
-            // zip.add_directory("content", FileOptions::default())?;
-            // let manifest = Box::new(Manifest::new(path.file_name().unwrap().to_str().unwrap()));
-            // zip.start_file("manifest", FileOptions::default())?;
-            // zip.write(serde_json::to_string(&manifest)?.as_bytes())?;
-            // manifest_opt = Some(manifest);
         }
-        // let tmp_dir = TempDir::new("theLock")?;
-        Ok(Self { file: File::options().read(true).write(true).open(path)?, directory_content: None, /*tmp_dir, manifest: manifest_opt*/ })
+        Ok(Self { file: File::options().read(true).write(true).open(path)?, directory_content: None, symmetric_cipher: SymmetricCipher::default() })
+    }
+
+    pub fn change_buffor_size(&mut self, buffor_size: usize) {
+        self.symmetric_cipher.change_buffor_size(buffor_size);
+    }
+
+    pub fn buffor_size(&self) -> usize {
+        self.symmetric_cipher.buffor_size()
     }
 
     pub fn get_directory_content_soft(&self) -> Option<&DirectoryContent> {
@@ -61,13 +84,16 @@ impl EncryptedFile {
 
     pub fn get_directory_content(&mut self) -> SResult<&DirectoryContent> {
         match self.directory_content.is_some() {
-            true => self.get_directory_content_soft().ok_or(Box::new(JustError::new("msg".to_owned()))),
+            true => Ok(self.get_directory_content_soft().unwrap()),
             false => self.get_directory_content_hard(),
         }
     }
 
     #[inline]
     fn without_suffix<'a>(str: &'a str, suffix: &str) -> Option<&'a str> {
+        if str.len() < suffix.len() {
+            return None;
+        }
         match str.get((str.len() - suffix.len())..).unwrap() == suffix {
             true => str.get(..(str.len() - suffix.len())),
             false => None,
@@ -89,78 +115,103 @@ impl EncryptedFile {
             }
         }
         self.directory_content = Some(ans);
-        self.directory_content.as_ref().ok_or(Box::new(JustError::new("msg".to_owned())))
+        Ok(self.directory_content.as_ref().unwrap())
     }
 
-    /*fn push_manifest(&self) -> SResult<()> {
+    fn sign_file(&self, dst_path: &str, file_hash: &[u8; 64], private_key: &RsaPrivateKey) -> SResult<()> {
         let mut zip = ZipWriter::new_append(&self.file)?;
-        // zip.start_file("manifest", FileOptions::default())?;
-        zip.start_file_aligned("manifest", FileOptions::default(), 0)?;
-        zip.write(&serde_json::to_vec(self.manifest.as_ref().unwrap())?)?;
+        zip.start_file(format!("content/{}/{}", dst_path, FILE_SIGNATURE_NAME), FileOptions::default())?;
+        zip.write(&private_key.sign_with_rng(&mut OsRng, Pss::new::<Sha512>(), file_hash)?)?;
         Ok(())
     }
 
-    pub fn get_cached_manifest(&self) -> Option<&Box<Manifest>> {
-        if let Some(ans) = self.manifest.as_ref() {
-            return Some(ans);
-        }
-        None
-    }
-
-    pub fn get_manifest(&mut self) -> SResult<&Box<Manifest>> {
-        match self.manifest.is_some() {
-            true => Ok(self.manifest.as_ref().unwrap()),
-            false => self.get_manifest_force()
-        }
-    }
-
-    pub fn get_manifest_force(&mut self) -> SResult<&Box<Manifest>> {
+    fn verify_signature(&self, src_path: &str, file_hash: &[u8; 64], public_key: &RsaPublicKey) -> SResult<()> {
         let mut zip = ZipArchive::new(&self.file)?;
-        let mut manifest_zip_file = zip.by_name("manifest")?;
-        if manifest_zip_file.is_dir() {
-            return Err(Box::new(JustError::new("Not a file".to_owned())));
+        let mut buf = Vec::new();
+        // todo!("Check size");
+        zip.by_name(&format!("{}/{}", src_path, FILE_SIGNATURE_NAME))?.read_to_end(&mut buf)?;
+        if buf.len() != 64 {
+            return Err(EncryptedFileError::InvalidSignatureFile.into());
         }
-        let mut buffor = Vec::new();
-        // todo!("check manifest size to not blow up app");
-        manifest_zip_file.read_to_end(&mut buffor)?;
-        let s: String = buffor.into_iter().map(|b| b as char).collect();
-        self.manifest = Some(Box::new(serde_json::from_str(&s[..]).unwrap()));
-        Ok(self.manifest.as_ref().unwrap())
-    }*/
-
-    pub fn add_file<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> SResult<()> {
-        let dst = format!("content/{}", dst_path);
-        let symmertic_cipher = SymmetricCipher::new();
-        let key = SymmetricKey::new();
-        {
-            let mut zip = ZipWriter::new_append(&self.file)?;
-            zip.start_file(format!("{}/{}", dst, FILE_CONETENT_NAME), FileOptions::default())?;
-            symmertic_cipher.encrypt_file(&key, b"uno dos", src, &mut zip)?;
-            let key_bytes: [u8; 51] = key.into();
-            let encrypted_key = public_key.encrypt(&mut OsRng, Oaep::new::<sha2::Sha256>(), &key_bytes)?;
-            zip.start_file(format!("{}/{}", dst, FILE_KEY_NAME), FileOptions::default())?;
-            zip.write_all(&encrypted_key)?;
-        }
-        // self.get_manifest()?;
-        // self.manifest.as_mut().unwrap().get_encrypted_files_mut().push(SingleEncryptedFile::new(&dst));
-        // self.push_manifest()?;
+        public_key.verify(Pss::new::<Sha512>(), file_hash, &buf)?;
         Ok(())
     }
 
-    pub fn decrypt_file<O: Write>(&mut self, src: &str, mut dst: O, private_key: &RsaPrivateKey) -> SResult<()> {
+    fn add_file_digest<I: Read>(&self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> SResult<Box<[u8; 64]>> {
+        let dst = format!("content/{}", dst_path);
+        let key = SymmetricKey::new();
+        let mut zip = ZipWriter::new_append(&self.file)?;
+        zip.start_file(format!("{}/{}", dst, FILE_CONETENT_NAME), FileOptions::default())?;
+        let dig = self.symmetric_cipher.encrypt_file(&key, b"uno dos", src, &mut zip)?;
+        let key_bytes: [u8; 51] = key.into();
+        let encrypted_key = public_key.encrypt(&mut OsRng, Oaep::new::<sha2::Sha256>(), &key_bytes)?;
+        zip.start_file(format!("{}/{}", dst, FILE_KEY_NAME), FileOptions::default())?;
+        zip.write_all(&encrypted_key)?;
+        Ok(dig)
+    }
+
+    fn decrypt_file_digest<O: Write>(&self, src: &str, mut dst: O, private_key: &RsaPrivateKey) -> SResult<Box<[u8; 64]>> {
         let mut zip = ZipArchive::new(&self.file)?;
         let key = {
             let mut zipfile = zip.by_name(format!("content/{}/{}", src, FILE_KEY_NAME).as_str())?;
             let mut buf: Vec<u8> = Vec::new();
+            // todo!("Check size");
             zipfile.read_to_end(&mut buf)?;
-            SymmetricKey::from(private_key.decrypt(Oaep::new::<sha2::Sha256>(), &buf)?)
+            SymmetricKey::try_from(private_key.decrypt(Oaep::new::<sha2::Sha256>(), &buf)?)?
         };
-        let symmertic_cipher = SymmetricCipher::new();
-        symmertic_cipher.decrypt_file(&key, b"uno dos", &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
+        let ans = self.symmetric_cipher.decrypt_file(&key, b"uno dos", &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
+        Ok(ans)
+    }
+
+    pub fn add_file<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> SResult<()> {
+        if self.get_directory_content().unwrap().get_file(dst_path).is_some() {
+            return Err(EncryptedFileError::FileAlreadyExists.into());
+        }
+        self.add_file_digest(src, dst_path, public_key)?;
+        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true);
         Ok(())
     }
-}
+    
+    pub fn add_file_and_sign<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> SResult<()> {
+        if self.get_directory_content().unwrap().get_file(dst_path).is_some() {
+            return Err(EncryptedFileError::FileAlreadyExists.into());
+        }
+        self.sign_file(dst_path, self.add_file_digest(src, dst_path, public_key)?.as_ref(), private_key)?;
+        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true).signed(true);
+        Ok(())
+    }
 
+    pub fn decrypt_file<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey) -> SResult<()> {
+        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+        if !file.has_content() {
+            Err(EncryptedFileError::FileContentIsMissing.into())
+        }
+        else if !file.has_key() {
+            Err(EncryptedFileError::FileKeyIsMissing.into())
+        }
+        else {
+            self.decrypt_file_digest(src, dst, private_key)?;
+            Ok(())
+        }
+    }
+
+    pub fn decrypt_file_and_verify<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<()> {
+        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+        if !file.has_content() {
+            Err(EncryptedFileError::FileContentIsMissing.into())
+        }
+        else if !file.has_key() {
+            Err(EncryptedFileError::FileKeyIsMissing.into())
+        }
+        else if !file.is_signed() {
+            Err(EncryptedFileError::FileIsNotSigned.into())
+        }
+        else {
+            self.verify_signature(src, self.decrypt_file_digest(src, dst, private_key)?.as_ref(), public_key)?;
+            Ok(())
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -169,7 +220,6 @@ mod tests {
     #[test]
     fn adding_file() {
         let mut ef = EncryptedFile::new(Path::new("testing/test2.zip")).expect("Creating new EncryptedFile");
-        // println!("{:?}", ef.get_manifest().unwrap());
         let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
         ef.add_file(File::open(Path::new("testing/testfile.txt")).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
     }
@@ -177,7 +227,6 @@ mod tests {
     #[test]
     fn adding_file_and_decrypting() {
         let mut ef = EncryptedFile::new(Path::new("testing/test4.zip")).expect("Creating new EncryptedFile");
-        // println!("{:?}", ef.get_manifest().unwrap());
         let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
         ef.add_file(File::open(Path::new("testing/testfile.txt")).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
         ef.decrypt_file("test/testfile.txt", File::create(Path::new("testing/decrypted.txt")).unwrap(), &key).unwrap();

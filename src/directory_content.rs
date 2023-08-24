@@ -24,24 +24,27 @@ impl SingleEncryptedFile {
         Self { has_content: has_content, has_key: has_key, is_signed: is_signed }
     }
 
-    pub fn content(&mut self, content: bool) {
+    pub fn content(&mut self, content: bool) -> &mut Self {
         self.has_content = content;
+        self
     }
 
     pub fn has_content(&self) -> bool {
         self.has_content
     }
 
-    pub fn key(&mut self, key: bool) {
+    pub fn key(&mut self, key: bool) -> &mut Self {
         self.has_key = key;
+        self
     }
 
     pub fn has_key(&self) -> bool {
         self.has_key
     }
 
-    pub fn signed(&mut self, v: bool) {
+    pub fn signed(&mut self, v: bool) -> &mut Self {
         self.is_signed = v;
+        self
     }
 
     pub fn is_signed(&self) -> bool {

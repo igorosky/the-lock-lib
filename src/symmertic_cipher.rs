@@ -5,23 +5,44 @@ use chacha20poly1305::aead::stream::EncryptorBE32;
 use chacha20poly1305::aead::KeyInit;
 use sha2::{Sha512, Digest};
 
-use crate::models::symmetric_key::SymmetricKey;
+use std::fmt::Display;
+use serde::{Serialize, Deserialize};
+use chacha20poly1305::{aead::AeadCore, Key};
+use rand::rngs::OsRng;
+use crate::SResult;
 
-use super::results::SResult;
-
-
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymmetricCipher {
-    pub buffor_size: usize,
+    buffor_size: usize,
+}
+
+impl Default for SymmetricCipher {
+    fn default() -> Self {
+        Self::new(256*1024*1024)
+    }
 }
 
 impl SymmetricCipher {
-    pub fn new() -> Self {
-        Self { buffor_size: 256*1024*1024 }
+    /***
+     * buffor_size in B
+     */
+    pub fn new(buffor_size: usize) -> Self {
+        Self { buffor_size: buffor_size }
     }
 
-    // pub fn new_with_buffor_size(buffor_size: usize) -> Self {
-    //     Self { buffor_size: buffor_size }
-    // }
+    /***
+     * buffor_size in B
+     */
+    pub fn change_buffor_size(&mut self, buffor_size: usize) {
+        self.buffor_size = buffor_size
+    }
+
+    /***
+     * buffor_size in B
+     */
+    pub fn buffor_size(&self) -> usize {
+        self.buffor_size
+    }
 
     pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
         let mut cipher = EncryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
@@ -89,14 +110,14 @@ impl SymmetricCipher {
 mod test {
     use std::{path::Path, fs::File};
 
-    use crate::{symmertic_cipher::SymmetricCipher, models::symmetric_key::SymmetricKey};
+    use super::*;
 
     #[test]
     fn encryptiom_test() {
         let src_file = Path::new("testing/test.zip");
         let encrypted_file = Path::new("testing/test.encrypted");
         let dst_file = Path::new("testing/test3.zip");
-        let sc = SymmetricCipher::new();
+        let sc = SymmetricCipher::default();
         let key = SymmetricKey::new();
         assert_eq!(
             sc.encrypt_file(
@@ -112,5 +133,180 @@ mod test {
                 &mut File::create(dst_file).expect("File dst")
             ).expect("Decryption Fail")
         );
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SymmetricKey {
+    key: [u8; 32],
+    nonce: [u8; 19],
+}
+
+impl From<[u8; 51]> for SymmetricKey {
+    fn from(value: [u8; 51]) -> Self {
+        Self { key: {
+            let mut key = [0; 32];
+            for (i, v) in value.iter().take(32).enumerate() {
+                key[i] = *v;
+            }
+            key
+        }, nonce: {
+            let mut nonce = [0; 19];
+            for (i, v) in value.into_iter().skip(32).enumerate() {
+                nonce[i] = v;
+            }
+            nonce
+        } }
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConvertionError;
+
+impl Display for ConvertionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Len should be equal to 51")
+    }
+}
+
+impl std::error::Error for ConvertionError { }
+
+impl TryFrom<Vec<u8>> for SymmetricKey {
+    type Error = ConvertionError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() != 51 {
+            Err(ConvertionError)
+        }
+        else {
+            Ok(Self { key: {
+                let mut key = [0; 32];
+                for (i, v) in value.iter().take(32).enumerate() {
+                    key[i] = *v;
+                }
+                key
+            }, nonce: {
+                let mut nonce = [0; 19];
+                for (i, v) in value.into_iter().skip(32).enumerate() {
+                    nonce[i] = v;
+                }
+                nonce
+            } })
+        }
+    }
+}
+
+impl TryFrom<&Vec<u8>> for SymmetricKey {
+    type Error = ConvertionError;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() != 51 {
+            Err(ConvertionError)
+        }
+        else {
+            Ok(Self { key: {
+                let mut key = [0; 32];
+                for (i, v) in value.iter().take(32).enumerate() {
+                    key[i] = *v;
+                }
+                key
+            }, nonce: {
+                let mut nonce = [0; 19];
+                for (i, v) in value.into_iter().skip(32).enumerate() {
+                    nonce[i] = *v;
+                }
+                nonce
+            } })
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for SymmetricKey {
+    type Error = ConvertionError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != 51 {
+            Err(ConvertionError)
+        }
+        else {
+            Ok(Self { key: {
+                let mut key = [0; 32];
+                for (i, v) in value.iter().take(32).enumerate() {
+                    key[i] = *v;
+                }
+                key
+            }, nonce: {
+                let mut nonce = [0; 19];
+                for (i, v) in value.into_iter().skip(32).enumerate() {
+                    nonce[i] = *v;
+                }
+                nonce
+            } })
+        }
+    }
+}
+
+impl Into<[u8; 51]> for SymmetricKey {
+    fn into(self) -> [u8; 51] {
+        let mut ans = [0; 51];
+        for (i, v) in self.key.into_iter().chain(self.nonce.into_iter()).enumerate() {
+            ans[i] = v;
+        }
+        ans
+    }
+}
+
+impl SymmetricKey {
+    pub fn new() -> Self {
+        Self::from_ket_and_nonce(XChaCha20Poly1305::generate_key(&mut OsRng), {
+            let mut ans = [0; 19];
+            for (i, v) in XChaCha20Poly1305::generate_nonce(&mut OsRng).get(0..19).unwrap().into_iter().enumerate() {
+                ans[i] = *v;
+            }
+            ans
+        })
+    }
+
+    pub fn get_key(&self) -> Key {
+        Key::from(self.key)
+    }
+
+    pub fn get_nonce(&self) -> &[u8; 19] {
+        &self.nonce
+    }
+
+    pub fn from_ket_and_nonce(key: Key, nonce: [u8; 19]) -> Self {
+        Self { key: {
+            let mut ans = [0; 32];
+            for (i, v) in key.into_iter().enumerate() {
+                ans[i] = v;
+            }
+            ans
+        },
+        nonce: nonce }
+    }
+}
+
+#[cfg(test)]
+mod key_test {
+    use std::{path::Path, fs::File, io::Read};
+
+    use rsa::pkcs8::der::Writer;
+
+    use super::SymmetricKey;
+
+    #[test]
+    fn key_serialization() {
+        let path = Path::new("testing/sym.key");
+        let mut key = SymmetricKey::new();
+        let key_copy = key.clone();
+        let key_bytes: [u8; 51] = key.into();
+        File::create(path).unwrap().write(&key_bytes).unwrap();
+        let mut buf = Vec::new();
+        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
+        key = SymmetricKey::try_from(buf).unwrap();
+        assert_eq!(key, key_copy);
     }
 }

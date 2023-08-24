@@ -1,4 +1,4 @@
-use std::io::{Write, Read};
+use std::{io::{Write, Read}, fmt::Display};
 
 use serde::{Serialize, Deserialize};
 use rsa::RsaPrivateKey;
@@ -6,7 +6,28 @@ use rand::rngs::OsRng;
 use libaes::{Cipher, AES_256_KEY_LEN};
 use argon2::Argon2;
 
-use crate::results::{SResult, JustError};
+use crate::SResult;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RsaPrivateKeySerializerError {
+    RequestedKeySizeIsTooSmall,
+    KeyIsNotEncrypted,
+    FileIsInvalid,
+    NoKeyToDecrypt,
+}
+
+impl Display for RsaPrivateKeySerializerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall => "RequestedKeySizeIsTooSmall",
+            RsaPrivateKeySerializerError::KeyIsNotEncrypted => "KeyIsNotEncrypted",
+            RsaPrivateKeySerializerError::FileIsInvalid => "FileIsInvalid",
+            RsaPrivateKeySerializerError::NoKeyToDecrypt => "NoKeyToDecrypt",
+        })
+    }
+}
+
+impl std::error::Error for RsaPrivateKeySerializerError { }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RsaPrivateKeySerializer {
@@ -18,7 +39,7 @@ pub struct RsaPrivateKeySerializer {
 impl RsaPrivateKeySerializer {
     pub fn new(bit_size: usize) -> SResult<RsaPrivateKey> {
         if bit_size < 512 {
-            return Err(Box::new(JustError::new("too small key".to_owned())));
+            return Err(RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall.into());
         }
         Ok(RsaPrivateKey::new(&mut OsRng, bit_size)?)
     }
@@ -29,7 +50,7 @@ impl RsaPrivateKeySerializer {
         match (ans.is_encrypted, ans.decrypted_key.is_none(), ans.encrypted_key.is_none()) {
             (true, true, false) => (),
             (false, false, true) => (),
-            _ => return Err(Box::new(JustError::new("Invalid file".to_owned()))),
+            _ => return Err(RsaPrivateKeySerializerError::FileIsInvalid.into()),
         }
         Ok(ans)
     }
@@ -52,11 +73,11 @@ impl RsaPrivateKeySerializer {
 
     fn read_and_decrypt(&mut self, password: &[u8]) -> SResult<()> {
         if !self.is_encrypted {
-            return Err(Box::new(JustError::new("Key is not encrypted".to_owned())));
+            return Err(RsaPrivateKeySerializerError::KeyIsNotEncrypted.into());
         }
         let (key, iv) = Self::copute_key_and_iv(password);
         let cipher = Cipher::new_256(&key);
-        let decrypted = cipher.cbc_decrypt(&iv, &self.encrypted_key.take().ok_or(Box::new(JustError::new("No key".to_owned())))?).into_iter().map(|c| c as char).collect::<String>();
+        let decrypted = cipher.cbc_decrypt(&iv, &self.encrypted_key.take().ok_or(RsaPrivateKeySerializerError::NoKeyToDecrypt)?).into_iter().map(|c| c as char).collect::<String>();
         self.decrypted_key = Some(serde_json::from_str(&decrypted)?);
         Ok(())
     }

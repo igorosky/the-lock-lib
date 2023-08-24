@@ -1,5 +1,4 @@
 .vscode
 target
 testing
-src/manifest_models.rs
 *.dep
