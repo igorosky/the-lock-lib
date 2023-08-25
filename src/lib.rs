@@ -1,10 +1,10 @@
-extern crate serde_json;
-extern crate libaes;
-extern crate rsa;
-extern crate chacha20poly1305;
-extern crate sha2;
-extern crate rand;
-extern crate argon2;
+// extern crate serde_json;
+// extern crate libaes;
+// extern crate rsa;
+// extern crate chacha20poly1305;
+// extern crate sha2;
+// extern crate rand;
+// extern crate argon2;
 
 use std::borrow::BorrowMut;
 use std::{fs::File, fmt::Display};
@@ -13,11 +13,13 @@ use std::io::prelude::Write;
 use std::path::Path;
 use rsa::{RsaPublicKey, Oaep, RsaPrivateKey, Pss};
 use sha2::Sha512;
+use signers_list::SignersList;
 use zip::{ZipArchive, ZipWriter, write::FileOptions};
 use rand::rngs::OsRng;
 
 mod symmertic_cipher;
 mod directory_content;
+mod signers_list;
 pub mod rsa_private_key_serializer;
 
 use directory_content::DirectoryContent;
@@ -209,6 +211,28 @@ impl EncryptedFile {
         else {
             self.verify_signature(src, self.decrypt_file_digest(src, dst, private_key)?.as_ref(), public_key)?;
             Ok(())
+        }
+    }
+
+    pub fn decrypt_file_and_find_signer<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Option<String>> {
+        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+        if !file.has_content() {
+            Err(EncryptedFileError::FileContentIsMissing.into())
+        }
+        else if !file.has_key() {
+            Err(EncryptedFileError::FileKeyIsMissing.into())
+        }
+        else if !file.is_signed() {
+            Err(EncryptedFileError::FileIsNotSigned.into())
+        }
+        else {
+            let digest = self.decrypt_file_digest(src, dst, private_key)?;
+            for (signer, key) in signers_list {
+                if self.verify_signature(src, &digest, &key).is_ok() {
+                    return Ok(Some(signer.to_owned()));
+                }
+            }
+            Ok(None)
         }
     }
 }
