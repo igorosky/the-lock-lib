@@ -60,6 +60,7 @@ pub struct EncryptedFile {
     file: File,
     directory_content: Option<DirectoryContent>,
     symmetric_cipher: SymmetricCipher,
+    associated_data: Vec<u8>,
 }
 
 impl EncryptedFile {
@@ -69,8 +70,21 @@ impl EncryptedFile {
             let file = File::create(path)?;
             ZipWriter::new(file);
         }
-        Ok(Self { file: File::options().read(true).write(true).open(path)?, directory_content: None, symmetric_cipher: SymmetricCipher::default() })
+        Ok(Self {
+            file: File::options().read(true).write(true).open(path)?,
+            directory_content: None,
+            symmetric_cipher: SymmetricCipher::default(),
+            associated_data: b"@s3ue9lWmFBMthC%NQnes1@2!SK@drScEQV6GPr^s$v@US&N6lI$uCirVwr8@6HkqStAS%%9T#Fn5Axom%C2#3&Ss0wQQL8J&1w*QKb64Mlt!cH4DaV0v^ZFh8^oCh@Y".to_vec()
+        })
     }
+
+    pub fn associated_data(&self) -> &[u8] {
+        &self.associated_data
+    }
+
+    pub fn change_associated_data(&mut self, associated_data: Vec<u8>) {
+        self.associated_data = associated_data;
+    } 
 
     pub fn change_buffor_size(&mut self, buffor_size: usize) {
         self.symmetric_cipher.change_buffor_size(buffor_size);
@@ -141,7 +155,7 @@ impl EncryptedFile {
         let key = SymmetricKey::new();
         let mut zip = ZipWriter::new_append(&self.file)?;
         zip.start_file(format!("{}/{}", dst, FILE_CONETENT_NAME), FileOptions::default())?;
-        let dig = self.symmetric_cipher.encrypt_file(&key, b"uno dos", src, &mut zip)?;
+        let dig = self.symmetric_cipher.encrypt_file(&key, self.associated_data(), src, &mut zip)?;
         let key_bytes: [u8; 51] = key.into();
         let encrypted_key = public_key.encrypt(&mut OsRng, Oaep::new::<sha2::Sha256>(), &key_bytes)?;
         zip.start_file(format!("{}/{}", dst, FILE_KEY_NAME), FileOptions::default())?;
@@ -158,7 +172,7 @@ impl EncryptedFile {
             zipfile.read_to_end(&mut buf)?;
             SymmetricKey::try_from(private_key.decrypt(Oaep::new::<sha2::Sha256>(), &buf)?)?
         };
-        let ans = self.symmetric_cipher.decrypt_file(&key, b"uno dos", &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
+        let ans = self.symmetric_cipher.decrypt_file(&key, self.associated_data(), &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
         Ok(ans)
     }
 
