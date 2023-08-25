@@ -114,35 +114,3 @@ impl RsaPrivateKeySerializer {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod test {
-    use std::{fs::File, path::Path};
-
-    use super::RsaPrivateKeySerializer;
-
-    #[test]
-    fn key_generation() {
-        let _ = RsaPrivateKeySerializer::new(2048);
-    }
-
-    #[test]
-    fn key_serialization() {
-        const FILE_NAME: &str = "testing/key.pem";
-        let key = RsaPrivateKeySerializer::new(2048).unwrap();
-        RsaPrivateKeySerializer::save(key, &mut File::create(Path::new(FILE_NAME)).unwrap()).unwrap();
-        let k = RsaPrivateKeySerializer::read(&mut File::open(Path::new(FILE_NAME)).unwrap()).unwrap();
-        assert!(!k.is_encrypted());
-        let _ = k.get_key().unwrap();
-    }
-
-    #[test]
-    fn key_encrypted_serialization() {
-        const FILE_NAME: &str = "testing/key_encrypted.pem";
-        let key = RsaPrivateKeySerializer::new(2048).unwrap();
-        RsaPrivateKeySerializer::save_with_password(key, &mut File::create(Path::new(FILE_NAME)).unwrap(), b"password").unwrap();
-        let k = RsaPrivateKeySerializer::read(&mut File::open(Path::new(FILE_NAME)).unwrap()).unwrap();
-        assert!(k.is_encrypted());
-        let _ = k.get_encrypted_key(b"password").unwrap();
-    }
-}

@@ -16,3 +16,6 @@ rand = "*"
 libaes = "*"
 argon2 = "*"
 uuid = { version = "*", features = ["v4", "fast-rng"] }
+
+[dev-dependencies]
+tempdir = "*"

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, fmt::Display, fs::{File, remove_file}, io::{Write, Read}};
+use std::{collections::{HashMap, HashSet}, path::Path, fmt::Display, fs::{File, remove_file}, io::{Write, Read}};
 
 use rsa::RsaPublicKey;
 use uuid::Uuid;
@@ -11,6 +11,7 @@ pub enum SignersListError {
     ItIsNotAnDirectory,
     SignerDoesNotExist,
     SignerIsNotValid,
+    MoreThanOneSignerHasSameKeyFile,
 }
 
 impl Display for SignersListError {
@@ -20,6 +21,7 @@ impl Display for SignersListError {
             SignersListError::ItIsNotAnDirectory => "ItIsNotAnDirectory",
             SignersListError::SignerDoesNotExist => "SignerDoesNotExist",
             SignersListError::SignerIsNotValid => "SignerIsNotValid",
+            SignersListError::MoreThanOneSignerHasSameKeyFile => "MoreThanOneSignerHasSameKeyFile",
         })
     }
 }
@@ -30,34 +32,46 @@ impl std::error::Error for SignersListError { }
 pub struct SignersList {
     path: Box<Path>,
     signers: HashMap<String, String>,
+    used_uuid: HashSet<String>,
 }
 
 impl SignersList {
-    pub fn new(path: &Path) -> SResult<Self> {
-        if !path.exists() {
+    pub fn new<P: AsRef<Path>>(path: P) -> SResult<Self> {
+        if !path.as_ref().exists() {
             return Err(SignersListError::DirectoryDoesNotExit.into());
         }
-        else if path.is_file() {
+        else if path.as_ref().is_file() {
             return Err(SignersListError::ItIsNotAnDirectory.into());
         }
         else {
-            Ok(Self { path: Box::from(path), signers: HashMap::new() })   
+            Ok(Self { path: Box::from(path.as_ref()), signers: HashMap::new(), used_uuid: HashSet::new() })   
         }
     }
 
     const MANIFEST: &str = "manifest";
 
-    pub fn open(path: &Path) -> SResult<Self> {
-        let mut ans = Self::new(path)?;
-        let mut manifest = File::open(path.join(Self::MANIFEST))?;
+    pub fn open<P: AsRef<Path>>(path: P) -> SResult<Self> {
+        let mut ans = Self::new(path.as_ref())?;
+        let mut manifest = File::open(path.as_ref().join(Self::MANIFEST))?;
         let mut buf = String::new();
         manifest.read_to_string(&mut buf)?;
         ans.signers = serde_json::from_str(&buf)?;
+        for (_, uuid) in &ans.signers {
+            if !ans.used_uuid.insert(uuid.to_owned()) {
+                return Err(SignersListError::MoreThanOneSignerHasSameKeyFile.into());
+            }
+        }
         Ok(ans)
     }
     
     pub fn add_signer(&mut self, name: &str, rsa_public_key: &RsaPublicKey) -> SResult<()> {
-        let uuid = Uuid::new_v4().to_string();
+        let uuid = {
+            let mut uuid = Uuid::new_v4().to_string();
+            while self.used_uuid.contains(&uuid) {
+                uuid = Uuid::new_v4().to_string();
+            }
+            uuid
+        };
         self.signers.insert(name.to_owned(), uuid.clone());
         File::create(self.path.join(uuid))?.write(&serde_json::to_vec(rsa_public_key)?)?;
         File::create(self.path.join(Self::MANIFEST))?.write(&serde_json::to_vec(&self.signers)?)?;

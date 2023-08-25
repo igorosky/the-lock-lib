@@ -1,10 +1,10 @@
-// extern crate serde_json;
-// extern crate libaes;
-// extern crate rsa;
-// extern crate chacha20poly1305;
-// extern crate sha2;
-// extern crate rand;
-// extern crate argon2;
+extern crate serde_json;
+extern crate libaes;
+pub extern crate rsa;
+extern crate chacha20poly1305;
+extern crate sha2;
+extern crate rand;
+extern crate argon2;
 
 use std::borrow::BorrowMut;
 use std::{fs::File, fmt::Display};
@@ -34,7 +34,7 @@ type SResult<T> = Result<T, Box<dyn std::error::Error>>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EncryptedFileError {
     FileAlreadyExists,
-    InvalidSignatureFile,
+    // InvalidSignatureFile,
     FileDoesNotExist,
     FileIsNotSigned,
     FileKeyIsMissing,
@@ -45,7 +45,7 @@ impl Display for EncryptedFileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
             EncryptedFileError::FileAlreadyExists => "FileAlreadyExists",
-            EncryptedFileError::InvalidSignatureFile => "InvalidSignatureFile",
+            // EncryptedFileError::InvalidSignatureFile => "InvalidSignatureFile",
             EncryptedFileError::FileDoesNotExist => "FileDoesNotExist",
             EncryptedFileError::FileIsNotSigned => "FileIsNotSigned",
             EncryptedFileError::FileKeyIsMissing => "FileKeyIsMissing",
@@ -131,10 +131,7 @@ impl EncryptedFile {
         let mut zip = ZipArchive::new(&self.file)?;
         let mut buf = Vec::new();
         // todo!("Check size");
-        zip.by_name(&format!("{}/{}", src_path, FILE_SIGNATURE_NAME))?.read_to_end(&mut buf)?;
-        if buf.len() != 64 {
-            return Err(EncryptedFileError::InvalidSignatureFile.into());
-        }
+        zip.by_name(&format!("content/{}/{}", src_path, FILE_SIGNATURE_NAME))?.read_to_end(&mut buf)?;
         public_key.verify(Pss::new::<Sha512>(), file_hash, &buf)?;
         Ok(())
     }
@@ -238,27 +235,4 @@ impl EncryptedFile {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn adding_file() {
-        let mut ef = EncryptedFile::new(Path::new("testing/test2.zip")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file(File::open(Path::new("testing/testfile.txt")).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
-    }
-
-    #[test]
-    fn adding_file_and_decrypting() {
-        let mut ef = EncryptedFile::new(Path::new("testing/test4.zip")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file(File::open(Path::new("testing/testfile.txt")).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
-        ef.decrypt_file("test/testfile.txt", File::create(Path::new("testing/decrypted.txt")).unwrap(), &key).unwrap();
-    }
-
-    #[test]
-    fn get_directory_content() {
-        let mut ef = EncryptedFile::new(Path::new("testing/test4.zip")).expect("Creating new EncryptedFile");
-        println!("{:?}", ef.get_directory_content().unwrap());
-    }
-}
+mod tests;

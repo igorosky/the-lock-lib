@@ -106,37 +106,6 @@ impl SymmetricCipher {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use std::{path::Path, fs::File};
-
-    use super::*;
-
-    #[test]
-    fn encryptiom_test() {
-        let src_file = Path::new("testing/test.zip");
-        let encrypted_file = Path::new("testing/test.encrypted");
-        let dst_file = Path::new("testing/test3.zip");
-        let sc = SymmetricCipher::default();
-        let key = SymmetricKey::new();
-        assert_eq!(
-            sc.encrypt_file(
-                &key,
-                b"123",
-                &mut File::open(src_file).expect("File source"),
-                &mut File::create(encrypted_file).expect("File dst")
-            ).expect("Encryption Fail"),
-            sc.decrypt_file(
-                &key,
-                b"123",
-                &mut File::open(encrypted_file).expect("File source"),
-                &mut File::create(dst_file).expect("File dst")
-            ).expect("Decryption Fail")
-        );
-    }
-}
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymmetricKey {
     key: [u8; 32],
@@ -286,27 +255,5 @@ impl SymmetricKey {
             ans
         },
         nonce: nonce }
-    }
-}
-
-#[cfg(test)]
-mod key_test {
-    use std::{path::Path, fs::File, io::Read};
-
-    use rsa::pkcs8::der::Writer;
-
-    use super::SymmetricKey;
-
-    #[test]
-    fn key_serialization() {
-        let path = Path::new("testing/sym.key");
-        let mut key = SymmetricKey::new();
-        let key_copy = key.clone();
-        let key_bytes: [u8; 51] = key.into();
-        File::create(path).unwrap().write(&key_bytes).unwrap();
-        let mut buf = Vec::new();
-        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-        key = SymmetricKey::try_from(buf).unwrap();
-        assert_eq!(key, key_copy);
     }
 }
