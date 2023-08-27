@@ -6,7 +6,6 @@ use chacha20poly1305::aead::KeyInit;
 use sha2::{Sha512, Digest};
 
 use std::fmt::Display;
-use serde::{Serialize, Deserialize};
 use chacha20poly1305::{aead::AeadCore, Key};
 use rand::rngs::OsRng;
 use crate::SResult;
@@ -106,7 +105,7 @@ impl SymmetricCipher {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymmetricKey {
     key: [u8; 32],
     nonce: [u8; 19],

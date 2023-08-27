@@ -1,6 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display};
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SingleEncryptedFile {
     has_content: bool,
     has_key: bool,
@@ -53,6 +57,7 @@ impl SingleEncryptedFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ContentErrors {
     FileAlreadyExists,
     DirectoryAlreadyExists,
@@ -78,6 +83,7 @@ impl std::error::Error for ContentErrors { }
 type DirectoryContentResult<T> = Result<T, ContentErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DirectoryContent {
     files: BTreeMap<String, SingleEncryptedFile>,
     directorys: BTreeMap<String, DirectoryContent>,

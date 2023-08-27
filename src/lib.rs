@@ -1,3 +1,4 @@
+extern crate serde;
 extern crate serde_json;
 extern crate libaes;
 pub extern crate rsa;
@@ -18,8 +19,8 @@ use zip::{ZipArchive, ZipWriter, write::FileOptions};
 use rand::rngs::OsRng;
 
 mod symmertic_cipher;
-mod directory_content;
-mod signers_list;
+pub mod directory_content;
+pub mod signers_list;
 pub mod rsa_private_key_serializer;
 
 use directory_content::DirectoryContent;
