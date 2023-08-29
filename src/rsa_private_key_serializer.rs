@@ -46,7 +46,7 @@ impl RsaPrivateKeySerializer {
 
     pub fn read<R: Read>(read: &mut R) -> SResult<Self> {
         // TODO Check if file is not too big
-        let ans: RsaPrivateKeySerializer = serde_json::from_reader(read)?;
+        let ans: RsaPrivateKeySerializer = rmp_serde::from_read(read)?;
         match (ans.is_encrypted, ans.decrypted_key.is_none(), ans.encrypted_key.is_none()) {
             (true, true, false) => (),
             (false, false, true) => (),
@@ -77,13 +77,13 @@ impl RsaPrivateKeySerializer {
         }
         let (key, iv) = Self::copute_key_and_iv(password);
         let cipher = Cipher::new_256(&key);
-        let decrypted = cipher.cbc_decrypt(&iv, &self.encrypted_key.take().ok_or(RsaPrivateKeySerializerError::NoKeyToDecrypt)?).into_iter().map(|c| c as char).collect::<String>();
-        self.decrypted_key = Some(serde_json::from_str(&decrypted)?);
+        let decrypted = cipher.cbc_decrypt(&iv, &self.encrypted_key.take().ok_or(RsaPrivateKeySerializerError::NoKeyToDecrypt)?);
+        self.decrypted_key = Some(rmp_serde::from_slice(&decrypted)?);
         Ok(())
     }
 
     pub fn save<W: Write>(key: RsaPrivateKey, output: &mut W) -> SResult<()> {
-        output.write(serde_json::to_string(&Self { is_encrypted: false, decrypted_key: Some(key), encrypted_key: None })?.as_bytes())?;
+        output.write(&rmp_serde::to_vec(&Self { is_encrypted: false, decrypted_key: Some(key), encrypted_key: None })?)?;
         Ok(())
     }
 
@@ -101,13 +101,13 @@ impl RsaPrivateKeySerializer {
 
     pub fn save_with_password<W: Write>(rsa_key: RsaPrivateKey, output: &mut W, password: &[u8]) -> SResult<()> {
         let (key, iv) = Self::copute_key_and_iv(password);
-        output.write(&serde_json::to_vec(&Self {
+        output.write(&rmp_serde::to_vec(&Self {
             is_encrypted: true,
             decrypted_key: None,
             encrypted_key: Some(
                 Cipher::new_256(&key).cbc_encrypt(
                     &iv,
-                    &serde_json::to_vec(&rsa_key)?
+                    &rmp_serde::to_vec(&rsa_key)?
                 )
             )
         }).unwrap())?;

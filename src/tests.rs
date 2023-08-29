@@ -76,6 +76,8 @@ mod lib_tests {
 
     use super::test_utils::MockFile;
 
+    use std::fs::create_dir;
+
     #[test]
     fn adding_file() {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
@@ -141,6 +143,57 @@ mod lib_tests {
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
+    
+    #[test]
+    fn encrypt_folder() {
+        let tmp_dir = TempDir::new("the-lock-test").unwrap();
+        let dir_to_encrypt = tmp_dir.path().join("dir");
+        create_dir(dir_to_encrypt.clone()).unwrap();
+        create_dir(dir_to_encrypt.join("sdir")).unwrap();
+        let _mock_file1 = MockFile::new(dir_to_encrypt.join("file1")).unwrap();
+        let _mock_file2 = MockFile::new(dir_to_encrypt.join("file2")).unwrap();
+        let _mock_file3 = MockFile::new(dir_to_encrypt.join("file3")).unwrap();
+        let _mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
+        let _mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
+        let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.to_public_key()).is_ok());
+    }
+    
+    #[test]
+    fn encrypt_folder_and_decrypt() {
+        let tmp_dir = TempDir::new("the-lock-test").unwrap();
+        let dir_to_encrypt = tmp_dir.path().join("dir");
+        create_dir(dir_to_encrypt.clone()).unwrap();
+        create_dir(dir_to_encrypt.join("sdir")).unwrap();
+        let mock_file1 = MockFile::new(dir_to_encrypt.join("file1")).unwrap();
+        let mock_file2 = MockFile::new(dir_to_encrypt.join("file2")).unwrap();
+        let mock_file3 = MockFile::new(dir_to_encrypt.join("file3")).unwrap();
+        let mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
+        let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
+        let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.to_public_key()).is_ok());
+        ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap();
+        create_dir(tmp_dir.path().join("output")).unwrap();
+        ef.decrypt_directory("folder/dir", tmp_dir.path().join("output"), &key).unwrap();
+        mock_file1.validate().unwrap();
+        mock_file2.validate().unwrap();
+        mock_file3.validate().unwrap();
+        mock_file4.validate().unwrap();
+        mock_file5.validate().unwrap();
+    }
+
+    // #[test]
+    // fn add_empty_directory() {
+    //     let tmp_dir = TempDir::new("the-lock-test").unwrap();
+    //     let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+    //     ef.add_empty_directory("nice").unwrap();
+    //     drop(ef);
+    //     let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+    //     println!("{:?}", ef.get_directory_content());
+    //     assert!(ef.get_directory_content().unwrap().get_dir("nice").is_some());
+    // }
 }
 
 mod directory_content_tests {

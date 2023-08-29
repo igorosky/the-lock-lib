@@ -1,4 +1,5 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::{BTreeMap, btree_map::Iter}, fmt::Display};
+// use std::collections::btree_map::IterMut;
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
@@ -86,13 +87,13 @@ type DirectoryContentResult<T> = Result<T, ContentErrors>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DirectoryContent {
     files: BTreeMap<String, SingleEncryptedFile>,
-    directorys: BTreeMap<String, DirectoryContent>,
+    directories: BTreeMap<String, DirectoryContent>,
 }
 
 impl Default for DirectoryContent {
     #[inline]
     fn default() -> Self {
-        Self { files: BTreeMap::new(), directorys: BTreeMap::new() }
+        Self { files: BTreeMap::new(), directories: BTreeMap::new() }
     }
 }
 
@@ -143,7 +144,7 @@ impl DirectoryContent {
 
     pub fn get_dir(&self, path: &str) -> Option<&DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.directorys.get(next_part)) {
+        match (rest.is_empty(), self.directories.get(next_part)) {
             (true, Some(dir)) => Some(dir),
             (false, Some(dir)) => dir.get_dir(rest),
             (_, None) => None,
@@ -152,7 +153,7 @@ impl DirectoryContent {
 
     pub fn get_dir_mut(&mut self, path: &str) -> Option<&mut DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.directorys.get_mut(next_part)) {
+        match (rest.is_empty(), self.directories.get_mut(next_part)) {
             (true, Some(dir)) => Some(dir),
             (false, Some(dir)) => dir.get_dir_mut(rest),
             (_, None) => None,
@@ -161,83 +162,83 @@ impl DirectoryContent {
 
     pub fn get_file(&self, path: &str) -> Option<&SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.files.get(next_part), self.directorys.get(next_part)) {
+        match (rest.is_empty(), self.files.get(next_part), self.directories.get(next_part)) {
             (true, Some(file), _) => Some(file),
             (false, _, Some(dir)) => dir.get_file(rest),
             _ => None,
         }
     }
 
-    pub fn get_file_mut(&mut self, path: &str) -> Option<&mut SingleEncryptedFile> {
+    pub(crate) fn get_file_mut(&mut self, path: &str) -> Option<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.files.get_mut(next_part), self.directorys.get_mut(next_part)) {
+        match (rest.is_empty(), self.files.get_mut(next_part), self.directories.get_mut(next_part)) {
             (true, Some(file), _) => Some(file),
             (false, _, Some(dir)) => dir.get_file_mut(rest),
             _ => None,
         }
     }
 
-    pub fn add_directory(&mut self, path: &str) -> DirectoryContentResult<&mut DirectoryContent> {
+    pub(crate) fn add_directory(&mut self, path: &str) -> DirectoryContentResult<&mut DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
             return Ok(self);
         }
-        match (self.files.contains_key(next_part), self.directorys.contains_key(next_part)) {
-            (_, true) => self.directorys.get_mut(next_part).unwrap().add_directory(rest),
+        match (self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
+            (_, true) => self.directories.get_mut(next_part).unwrap().add_directory(rest),
             (false, false) => {
-                self.directorys.insert(next_part.to_owned(), DirectoryContent::new());
-                self.directorys.get_mut(next_part).unwrap().add_directory(rest)
+                self.directories.insert(next_part.to_owned(), DirectoryContent::new());
+                self.directories.get_mut(next_part).unwrap().add_directory(rest)
             },
             (true, false) => Err(ContentErrors::FileAlreadyExists),
         }
     }
 
-    pub fn add_file(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+    pub(crate) fn add_file(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
             return Err(ContentErrors::NameCanNotBeEmpty);
         }
-        match (rest.is_empty(), self.files.contains_key(next_part), self.directorys.contains_key(next_part)) {
+        match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
                 self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
                 Ok(self.files.get_mut(next_part).unwrap())
             },
-            (false, _, true) => self.directorys.get_mut(next_part).unwrap().add_file(rest),
+            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
             (true, _, true) => Err(ContentErrors::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentErrors::FileAlreadyExists),
             (false, _, false) => Err(ContentErrors::DirectoryDoesNotExit),
         }
     }
 
-    pub fn add_file_with_path(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+    pub(crate) fn add_file_with_path(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
             return Err(ContentErrors::NameCanNotBeEmpty);
         }
-        match (rest.is_empty(), self.files.contains_key(next_part), self.directorys.contains_key(next_part)) {
+        match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
                 self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
                 Ok(self.files.get_mut(next_part).unwrap())
             },
-            (false, _, true) => self.directorys.get_mut(next_part).unwrap().add_file(rest),
+            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
             (true, _, true) => Err(ContentErrors::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentErrors::FileAlreadyExists),
             (false, _, false) => self.add_directory(next_part).unwrap().add_file_with_path(rest),
         }
     }
 
-    pub fn get_or_create_file(&mut self, path: &str) -> DirectoryContentResult<&SingleEncryptedFile> {
-        if self.get_file(path).is_some() {
-            Ok(self.get_file(path).unwrap())
-        }
-        else {
-            let x: &SingleEncryptedFile = self.add_file_with_path(path)?;
-            Ok(x)
-        }
-        // todo!("Optimize it somehow")
-    }
+    // pub(crate) fn get_or_create_file(&mut self, path: &str) -> DirectoryContentResult<&SingleEncryptedFile> {
+    //     if self.get_file(path).is_some() {
+    //         Ok(self.get_file(path).unwrap())
+    //     }
+    //     else {
+    //         let x: &SingleEncryptedFile = self.add_file_with_path(path)?;
+    //         Ok(x)
+    //     }
+    //     // todo!("Optimize it somehow")
+    // }
 
-    pub fn get_or_create_file_mut(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+    pub(crate) fn get_or_create_file_mut(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         if self.get_file(path).is_some() {
             Ok(self.get_file_mut(path).unwrap())
         }
@@ -247,24 +248,40 @@ impl DirectoryContent {
         // todo!("Optimize it somehow")
     }
 
-    pub fn get_or_create_dir(&mut self, path: &str) -> DirectoryContentResult<&DirectoryContent> {
-        if self.get_dir(path).is_some() {
-            Ok(self.get_dir(path).unwrap())
-        }
-        else {
-            let x: &DirectoryContent = self.add_directory(path)?;
-            Ok(x)
-        }
-        // todo!("Optimize it somehow")
+    // pub(crate) fn get_or_create_dir(&mut self, path: &str) -> DirectoryContentResult<&DirectoryContent> {
+    //     if self.get_dir(path).is_some() {
+    //         Ok(self.get_dir(path).unwrap())
+    //     }
+    //     else {
+    //         let x: &DirectoryContent = self.add_directory(path)?;
+    //         Ok(x)
+    //     }
+    //     // todo!("Optimize it somehow")
+    // }
+
+    // pub(crate) fn get_or_create_dir_mut(&mut self, path: &str) -> DirectoryContentResult<&mut DirectoryContent> {
+    //     if self.get_dir(path).is_some() {
+    //         Ok(self.get_dir_mut(path).unwrap())
+    //     }
+    //     else {
+    //         Ok(self.add_directory(path)?)
+    //     }
+    //     // todo!("Optimize it somehow")
+    // }
+
+    pub fn get_files_iter(&self) -> Iter<String, SingleEncryptedFile> {
+        self.files.iter()
     }
 
-    pub fn get_or_create_dir_mut(&mut self, path: &str) -> DirectoryContentResult<&mut DirectoryContent> {
-        if self.get_dir(path).is_some() {
-            Ok(self.get_dir_mut(path).unwrap())
-        }
-        else {
-            Ok(self.add_directory(path)?)
-        }
-        // todo!("Optimize it somehow")
+    pub fn get_dir_iter(&self) -> Iter<String, DirectoryContent> {
+        self.directories.iter()
     }
+
+    // pub(crate) fn get_files_iter_mut(&mut self) -> IterMut<String, SingleEncryptedFile> {
+    //     self.files.iter_mut()
+    // }
+
+    // pub(crate) fn get_dir_iter_mut(&mut self) -> IterMut<String, DirectoryContent> {
+    //     self.directories.iter_mut()
+    // }
 }

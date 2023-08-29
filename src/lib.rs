@@ -6,6 +6,7 @@ extern crate chacha20poly1305;
 extern crate sha2;
 extern crate rand;
 extern crate argon2;
+extern crate rmp_serde;
 
 use std::borrow::BorrowMut;
 use std::{fs::File, fmt::Display};
@@ -40,6 +41,10 @@ enum EncryptedFileError {
     FileIsNotSigned,
     FileKeyIsMissing,
     FileContentIsMissing,
+    InvalidPath,
+    DirectoryDoesNotExist,
+    ThisIsNotADirectory,
+    ContentIsUnknown,
 }
 
 impl Display for EncryptedFileError {
@@ -51,6 +56,10 @@ impl Display for EncryptedFileError {
             EncryptedFileError::FileIsNotSigned => "FileIsNotSigned",
             EncryptedFileError::FileKeyIsMissing => "FileKeyIsMissing",
             EncryptedFileError::FileContentIsMissing => "FileContentIsMissing",
+            EncryptedFileError::InvalidPath => "InvalidPath",
+            EncryptedFileError::DirectoryDoesNotExist => "DirectoryDoesNotExist",
+            EncryptedFileError::ThisIsNotADirectory => "ThisIsNotADirectory",
+            EncryptedFileError::ContentIsUnknown => "ContentIsUnknown",
         })
     }
 }
@@ -195,8 +204,11 @@ impl EncryptedFile {
         Ok(())
     }
 
-    pub fn decrypt_file<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey) -> SResult<()> {
-        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey) -> SResult<()> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        let file = self.get_directory_content_soft().unwrap().get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
         if !file.has_content() {
             Err(EncryptedFileError::FileContentIsMissing.into())
         }
@@ -209,8 +221,11 @@ impl EncryptedFile {
         }
     }
 
-    pub fn decrypt_file_and_verify<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<()> {
-        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+    pub fn decrypt_file_and_verify<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<()> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        let file = self.get_directory_content_soft().unwrap().get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
         if !file.has_content() {
             Err(EncryptedFileError::FileContentIsMissing.into())
         }
@@ -226,8 +241,11 @@ impl EncryptedFile {
         }
     }
 
-    pub fn decrypt_file_and_find_signer<O: Write>(&mut self, src: &str, dst: O, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Option<String>> {
-        let file = self.get_directory_content()?.get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
+    pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Option<String>> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        let file = self.get_directory_content_soft().unwrap().get_file(src).ok_or(EncryptedFileError::FileDoesNotExist)?;
         if !file.has_content() {
             Err(EncryptedFileError::FileContentIsMissing.into())
         }
@@ -247,6 +265,145 @@ impl EncryptedFile {
             Ok(None)
         }
     }
+
+    pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey) -> SResult<Vec<(Box<Path>, SResult<()>)>> {
+        if !src.as_ref().is_dir() {
+            return Err(EncryptedFileError::ThisIsNotADirectory.into());
+        }
+        let dst = format!("{}/{}", dst, src.as_ref().file_name().ok_or(EncryptedFileError::InvalidPath)?.to_str().ok_or(EncryptedFileError::InvalidPath)?);
+        let mut ans = Vec::new();
+        for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
+            if path.path().is_file() {
+                if path.file_name().to_str().is_some() {
+                    ans.push((Box::from(path.path()), self.add_file(File::open(path.path())?, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key)));
+                }
+            }
+            else {
+                let res = self.add_directory(path.path(), &dst, public_key);
+                if let Ok(mut res) = res {
+                    ans.append(&mut res);
+                }
+                else {
+                    ans.push((Box::from(path.path()), Err(res.unwrap_err())));
+                }
+            }
+        }
+        Ok(ans)
+    }
+
+    // Directory is not signed, but only every file it contains
+    pub fn add_directory_and_sign<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> SResult<Vec<(Box<Path>, SResult<()>)>> {
+        if !src.as_ref().is_dir() {
+            return Err(EncryptedFileError::ThisIsNotADirectory.into());
+        }
+        let dst = format!("{}/{}", dst, src.as_ref().file_name().ok_or(EncryptedFileError::InvalidPath)?.to_str().ok_or(EncryptedFileError::InvalidPath)?);
+        let mut ans = Vec::new();
+        for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
+            if path.path().is_file() {
+                if path.file_name().to_str().is_some() {
+                    ans.push((Box::from(path.path()), self.add_file_and_sign(File::open(path.path())?, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key, private_key)));
+                }
+            }
+            else {
+                let res = self.add_directory_and_sign(path.path(), &dst, public_key, private_key);
+                if let Ok(mut res) = res {
+                    ans.append(&mut res);
+                }
+                else {
+                    ans.push((Box::from(path.path()), Err(res.unwrap_err())));
+                }
+            }
+        }
+        Ok(ans)
+    }
+
+    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey) -> SResult<Vec<(String, SResult<()>)>> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        if self.get_directory_content_soft().unwrap().get_dir(src).is_none() {
+            return Err(EncryptedFileError::DirectoryDoesNotExist.into());
+        }
+        if !dst.as_ref().is_dir() {
+            return Err(EncryptedFileError::ThisIsNotADirectory.into());
+        }
+        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let mut ans = Vec::new();
+        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
+            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+            if let Ok(output_file) = output_file {
+                ans.push((name.to_owned(), self.decrypt_file(&format!("{}/{}", src, name), output_file, private_key)));
+            }
+            else {
+                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
+            }
+        }
+        Ok(ans)
+    }
+
+    pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<Vec<(String, SResult<()>)>> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        if self.get_directory_content_soft().unwrap().get_dir(src).is_none() {
+            return Err(EncryptedFileError::DirectoryDoesNotExist.into());
+        }
+        if !dst.as_ref().is_dir() {
+            return Err(EncryptedFileError::ThisIsNotADirectory.into());
+        }
+        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let mut ans = Vec::new();
+        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
+            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+            if let Ok(output_file) = output_file {
+                ans.push((name.to_owned(), self.decrypt_file_and_verify(&format!("{}/{}", src, name), output_file, private_key, public_key)));
+            }
+            else {
+                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
+            }
+        }
+        Ok(ans)
+    }
+
+    pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Vec<(String, SResult<Option<String>>)>> {
+        if self.get_directory_content_soft().is_none() {
+            return Err(EncryptedFileError::ContentIsUnknown.into());
+        }
+        if self.get_directory_content_soft().unwrap().get_dir(src).is_none() {
+            return Err(EncryptedFileError::DirectoryDoesNotExist.into());
+        }
+        if !dst.as_ref().is_dir() {
+            return Err(EncryptedFileError::ThisIsNotADirectory.into());
+        }
+        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let mut ans = Vec::new();
+        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
+            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+            if let Ok(output_file) = output_file {
+                ans.push((name.to_owned(), self.decrypt_file_and_find_signer(&format!("{}/{}", src, name), output_file, private_key, signers_list)));
+            }
+            else {
+                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
+            }
+        }
+        Ok(ans)
+    }
+    // Impossible with current ways
+    // pub fn add_empty_directory(&mut self, path: &str) -> SResult<()> {
+    //     self.get_directory_content()?;
+    //     let result = self.directory_content.as_mut().unwrap().add_directory(path);
+    //     if let Err(err) = result {
+    //         Err(err.into())
+    //     }
+    //     else {
+    //         if let Err(err) = ZipWriter::new_append(&self.file)?.add_directory(format!("content/{}", path), FileOptions::default()) {
+    //             Err(err.into())
+    //         }
+    //         else {
+    //             Ok(())
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]
