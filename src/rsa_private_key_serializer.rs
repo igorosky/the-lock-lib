@@ -14,6 +14,7 @@ enum RsaPrivateKeySerializerError {
     KeyIsNotEncrypted,
     FileIsInvalid,
     NoKeyToDecrypt,
+    KeyIsEncrypted,
 }
 
 impl Display for RsaPrivateKeySerializerError {
@@ -23,6 +24,7 @@ impl Display for RsaPrivateKeySerializerError {
             RsaPrivateKeySerializerError::KeyIsNotEncrypted => "KeyIsNotEncrypted",
             RsaPrivateKeySerializerError::FileIsInvalid => "FileIsInvalid",
             RsaPrivateKeySerializerError::NoKeyToDecrypt => "NoKeyToDecrypt",
+            RsaPrivateKeySerializerError::KeyIsEncrypted => "KeyIsEncrypted",
         })
     }
 }
@@ -60,7 +62,7 @@ impl RsaPrivateKeySerializer {
     }
 
     pub fn get_key(self) -> SResult<RsaPrivateKey> {
-        let mut ans = self.decrypted_key.unwrap();
+        let mut ans = self.decrypted_key.ok_or(RsaPrivateKeySerializerError::KeyIsEncrypted)?;
         ans.validate()?;
         ans.precompute()?;
         Ok(ans)
