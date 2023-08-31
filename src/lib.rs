@@ -34,7 +34,7 @@ const FILE_SIGNATURE_NAME: &str = "signature";
 type SResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum EncryptedFileError {
+pub enum EncryptedFileError {
     FileAlreadyExists,
     // InvalidSignatureFile,
     FileDoesNotExist,

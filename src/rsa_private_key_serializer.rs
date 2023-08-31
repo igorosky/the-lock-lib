@@ -9,7 +9,7 @@ use argon2::Argon2;
 use crate::SResult;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum RsaPrivateKeySerializerError {
+pub enum RsaPrivateKeySerializerError {
     RequestedKeySizeIsTooSmall,
     KeyIsNotEncrypted,
     FileIsInvalid,
