@@ -250,6 +250,31 @@ mod directory_content_tests {
         assert!(dir.get_file("abc/file").is_some());
         assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
     }
+
+    #[test]
+    fn exists() {
+        let mut dir = DirectoryContent::new();
+        assert!(dir.exists("/"));
+        assert!(dir.get_dir("/").is_some());
+        assert!(!dir.exists("abc/"));
+        assert!(!dir.exists("abc/file"));
+        assert!(dir.add_file("abc/file").is_err());
+        assert!(!dir.exists("abc/file"));
+        assert!(!dir.exists("abc/"));
+        assert!(dir.add_directory("abc").is_ok());
+        assert!(dir.exists("abc/"));
+        assert!(!dir.exists("abc/file"));
+        assert!(dir.get_dir_mut("abc").is_some());
+        assert!(dir.get_dir_mut("abc").unwrap().add_file("file").is_ok());
+        assert!(dir.get_dir("abc").is_some());
+        assert!(dir.get_file("abc").is_none());
+        assert!(dir.get_file("abc/file").is_some());
+        assert!(dir.exists("abc/"));
+        assert!(dir.exists("abc/file"));
+        assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
+        assert!(dir.exists("/"));
+        assert!(dir.get_dir("/").is_some());
+    }
 }
 
 mod rsa_private_key_serializer_tests {

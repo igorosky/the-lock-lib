@@ -119,6 +119,9 @@ impl DirectoryContent {
 
     pub fn get_dir(&self, path: &str) -> Option<&DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
+        if next_part.is_empty() {
+            return Some(self);
+        }
         match (rest.is_empty(), self.directories.get(next_part)) {
             (true, Some(dir)) => Some(dir),
             (false, Some(dir)) => dir.get_dir(rest),
@@ -128,6 +131,9 @@ impl DirectoryContent {
 
     pub fn get_dir_mut(&mut self, path: &str) -> Option<&mut DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
+        if next_part.is_empty() {
+            return Some(self);
+        }
         match (rest.is_empty(), self.directories.get_mut(next_part)) {
             (true, Some(dir)) => Some(dir),
             (false, Some(dir)) => dir.get_dir_mut(rest),
@@ -259,4 +265,16 @@ impl DirectoryContent {
     // pub(crate) fn get_dir_iter_mut(&mut self) -> IterMut<String, DirectoryContent> {
     //     self.directories.iter_mut()
     // }
+
+    pub fn exists(&self, path: &str) -> bool {
+        let (next_part, rest) = Self::get_next_and_rest(path);
+        if next_part.is_empty() {
+            return true;
+        }
+        match (rest.is_empty(), self.files.get(next_part), self.directories.get(next_part)) {
+            (true, Some(_), _) | (true, None, Some(_)) => true,
+            (false, _, Some(dir)) => dir.exists(rest),
+            _ => false,
+        }
+    }
 }
