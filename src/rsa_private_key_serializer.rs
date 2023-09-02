@@ -38,9 +38,8 @@ impl RsaPrivateKeySerializer {
     }
 
     pub fn get_key(self) -> RsaPrivateKeySerializerResult<RsaPrivateKey> {
-        let mut ans = self.decrypted_key.ok_or(RsaPrivateKeySerializerError::KeyIsEncrypted)?;
+        let ans = self.decrypted_key.ok_or(RsaPrivateKeySerializerError::KeyIsEncrypted)?;
         ans.validate()?;
-        ans.precompute()?;
         Ok(ans)
     }
 
