@@ -1,32 +1,9 @@
-use std::{collections::{HashMap, HashSet}, path::Path, fmt::Display, fs::{File, remove_file}, io::{Write, Read}};
+use std::{collections::{HashMap, HashSet}, path::Path, fs::{File, remove_file}, io::{Write, Read}};
 
 use rsa::RsaPublicKey;
 use uuid::Uuid;
 
-use crate::SResult;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SignersListError {
-    DirectoryDoesNotExit,
-    ItIsNotAnDirectory,
-    SignerDoesNotExist,
-    SignerIsNotValid,
-    MoreThanOneSignerHasSameKeyFile,
-}
-
-impl Display for SignersListError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            SignersListError::DirectoryDoesNotExit => "DirectoryDoesNotExit",
-            SignersListError::ItIsNotAnDirectory => "ItIsNotAnDirectory",
-            SignersListError::SignerDoesNotExist => "SignerDoesNotExist",
-            SignersListError::SignerIsNotValid => "SignerIsNotValid",
-            SignersListError::MoreThanOneSignerHasSameKeyFile => "MoreThanOneSignerHasSameKeyFile",
-        })
-    }
-}
-
-impl std::error::Error for SignersListError { }
+use crate::error::{SignersListError, SignersListResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignersList {
@@ -36,7 +13,7 @@ pub struct SignersList {
 }
 
 impl SignersList {
-    pub fn new<P: AsRef<Path>>(path: P) -> SResult<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> SignersListResult<Self> {
         if !path.as_ref().exists() {
             return Err(SignersListError::DirectoryDoesNotExit.into());
         }
@@ -50,7 +27,7 @@ impl SignersList {
 
     const MANIFEST: &str = "manifest";
 
-    pub fn open<P: AsRef<Path>>(path: P) -> SResult<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> SignersListResult<Self> {
         let mut ans = Self::new(path.as_ref())?;
         let mut manifest = File::open(path.as_ref().join(Self::MANIFEST))?;
         let mut buf = String::new();
@@ -64,7 +41,7 @@ impl SignersList {
         Ok(ans)
     }
     
-    pub fn add_signer(&mut self, name: &str, rsa_public_key: &RsaPublicKey) -> SResult<()> {
+    pub fn add_signer(&mut self, name: &str, rsa_public_key: &RsaPublicKey) -> SignersListResult<()> {
         let uuid = {
             let mut uuid = Uuid::new_v4().to_string();
             while self.used_uuid.contains(&uuid) {
@@ -82,7 +59,7 @@ impl SignersList {
         self.signers.contains_key(name)
     }
 
-    pub fn is_valid(&self, name: &str) -> SResult<()> {
+    pub fn is_valid(&self, name: &str) -> SignersListResult<()> {
         if self.path.join(self.signers.get(name).ok_or(SignersListError::SignerDoesNotExist)?).is_file() {
             Ok(())
         }
@@ -97,7 +74,7 @@ impl SignersList {
         }
     }
 
-    pub fn rename(&mut self, name: &str, new_name: &str) -> SResult<()> {
+    pub fn rename(&mut self, name: &str, new_name: &str) -> SignersListResult<()> {
         let v = self.signers.remove(name).ok_or(SignersListError::SignerDoesNotExist)?;
         self.signers.insert(new_name.to_owned(), v);
         Ok(())

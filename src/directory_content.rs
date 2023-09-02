@@ -1,8 +1,9 @@
-use std::{collections::{BTreeMap, btree_map::Iter}, fmt::Display};
-// use std::collections::btree_map::IterMut;
+use std::collections::{BTreeMap, btree_map::Iter};
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
+
+use crate::error::{ContentError, DirectoryContentResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -56,32 +57,6 @@ impl SingleEncryptedFile {
         self.is_signed
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum ContentErrors {
-    FileAlreadyExists,
-    DirectoryAlreadyExists,
-    FileDoesNotExist,
-    DirectoryDoesNotExit,
-    NameCanNotBeEmpty,
-}
-
-impl Display for ContentErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            ContentErrors::FileAlreadyExists => "FileAlreadyExists",
-            ContentErrors::DirectoryAlreadyExists => "DirectoryAlreadyExists",
-            ContentErrors::FileDoesNotExist => "FileDoesNotExist",
-            ContentErrors::DirectoryDoesNotExit => "DirectoryDoesNotExit",
-            ContentErrors::NameCanNotBeEmpty => "NameCanNotBeEmpty",
-        })
-    }
-}
-
-impl std::error::Error for ContentErrors { }
-
-type DirectoryContentResult<T> = Result<T, ContentErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -189,14 +164,14 @@ impl DirectoryContent {
                 self.directories.insert(next_part.to_owned(), DirectoryContent::new());
                 self.directories.get_mut(next_part).unwrap().add_directory(rest)
             },
-            (true, false) => Err(ContentErrors::FileAlreadyExists),
+            (true, false) => Err(ContentError::FileAlreadyExists),
         }
     }
 
     pub(crate) fn add_file(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
-            return Err(ContentErrors::NameCanNotBeEmpty);
+            return Err(ContentError::NameCanNotBeEmpty);
         }
         match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
@@ -204,16 +179,16 @@ impl DirectoryContent {
                 Ok(self.files.get_mut(next_part).unwrap())
             },
             (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
-            (true, _, true) => Err(ContentErrors::DirectoryAlreadyExists),
-            (true, true, false) => Err(ContentErrors::FileAlreadyExists),
-            (false, _, false) => Err(ContentErrors::DirectoryDoesNotExit),
+            (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
+            (true, true, false) => Err(ContentError::FileAlreadyExists),
+            (false, _, false) => Err(ContentError::DirectoryDoesNotExit),
         }
     }
 
     pub(crate) fn add_file_with_path(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
-            return Err(ContentErrors::NameCanNotBeEmpty);
+            return Err(ContentError::NameCanNotBeEmpty);
         }
         match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
@@ -221,8 +196,8 @@ impl DirectoryContent {
                 Ok(self.files.get_mut(next_part).unwrap())
             },
             (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
-            (true, _, true) => Err(ContentErrors::DirectoryAlreadyExists),
-            (true, true, false) => Err(ContentErrors::FileAlreadyExists),
+            (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
+            (true, true, false) => Err(ContentError::FileAlreadyExists),
             (false, _, false) => self.add_directory(next_part).unwrap().add_file_with_path(rest),
         }
     }

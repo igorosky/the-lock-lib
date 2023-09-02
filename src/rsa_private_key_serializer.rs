@@ -1,35 +1,11 @@
-use std::{io::{Write, Read}, fmt::Display};
+use std::io::{Write, Read};
 
 use serde::{Serialize, Deserialize};
 use rsa::RsaPrivateKey;
 use rand::rngs::OsRng;
 use libaes::{Cipher, AES_256_KEY_LEN};
 use argon2::Argon2;
-
-use crate::SResult;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RsaPrivateKeySerializerError {
-    RequestedKeySizeIsTooSmall,
-    KeyIsNotEncrypted,
-    FileIsInvalid,
-    NoKeyToDecrypt,
-    KeyIsEncrypted,
-}
-
-impl Display for RsaPrivateKeySerializerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall => "RequestedKeySizeIsTooSmall",
-            RsaPrivateKeySerializerError::KeyIsNotEncrypted => "KeyIsNotEncrypted",
-            RsaPrivateKeySerializerError::FileIsInvalid => "FileIsInvalid",
-            RsaPrivateKeySerializerError::NoKeyToDecrypt => "NoKeyToDecrypt",
-            RsaPrivateKeySerializerError::KeyIsEncrypted => "KeyIsEncrypted",
-        })
-    }
-}
-
-impl std::error::Error for RsaPrivateKeySerializerError { }
+use crate::error::{RsaPrivateKeySerializerError, RsaPrivateKeySerializerResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RsaPrivateKeySerializer {
@@ -39,14 +15,14 @@ pub struct RsaPrivateKeySerializer {
 }
 
 impl RsaPrivateKeySerializer {
-    pub fn new(bit_size: usize) -> SResult<RsaPrivateKey> {
+    pub fn new(bit_size: usize) -> RsaPrivateKeySerializerResult<RsaPrivateKey> {
         if bit_size < 512 {
-            return Err(RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall.into());
+            return Err(RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall);
         }
         Ok(RsaPrivateKey::new(&mut OsRng, bit_size)?)
     }
 
-    pub fn read<R: Read>(read: &mut R) -> SResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> RsaPrivateKeySerializerResult<Self> {
         // TODO Check if file is not too big
         let ans: RsaPrivateKeySerializer = rmp_serde::from_read(read)?;
         match (ans.is_encrypted, ans.decrypted_key.is_none(), ans.encrypted_key.is_none()) {
@@ -61,19 +37,19 @@ impl RsaPrivateKeySerializer {
         self.is_encrypted
     }
 
-    pub fn get_key(self) -> SResult<RsaPrivateKey> {
+    pub fn get_key(self) -> RsaPrivateKeySerializerResult<RsaPrivateKey> {
         let mut ans = self.decrypted_key.ok_or(RsaPrivateKeySerializerError::KeyIsEncrypted)?;
         ans.validate()?;
         ans.precompute()?;
         Ok(ans)
     }
 
-    pub fn get_encrypted_key(mut self, password: &[u8]) -> SResult<RsaPrivateKey> {
+    pub fn get_encrypted_key(mut self, password: &[u8]) -> RsaPrivateKeySerializerResult<RsaPrivateKey> {
         self.read_and_decrypt(password)?;
         self.get_key()
     }
 
-    fn read_and_decrypt(&mut self, password: &[u8]) -> SResult<()> {
+    fn read_and_decrypt(&mut self, password: &[u8]) -> RsaPrivateKeySerializerResult<()> {
         if !self.is_encrypted {
             return Err(RsaPrivateKeySerializerError::KeyIsNotEncrypted.into());
         }
@@ -84,7 +60,7 @@ impl RsaPrivateKeySerializer {
         Ok(())
     }
 
-    pub fn save<W: Write>(key: RsaPrivateKey, output: &mut W) -> SResult<()> {
+    pub fn save<W: Write>(key: RsaPrivateKey, output: &mut W) -> RsaPrivateKeySerializerResult<()> {
         output.write(&rmp_serde::to_vec(&Self { is_encrypted: false, decrypted_key: Some(key), encrypted_key: None })?)?;
         Ok(())
     }
@@ -101,7 +77,7 @@ impl RsaPrivateKeySerializer {
         (key, iv)
     }
 
-    pub fn save_with_password<W: Write>(rsa_key: RsaPrivateKey, output: &mut W, password: &[u8]) -> SResult<()> {
+    pub fn save_with_password<W: Write>(rsa_key: RsaPrivateKey, output: &mut W, password: &[u8]) -> RsaPrivateKeySerializerResult<()> {
         let (key, iv) = Self::copute_key_and_iv(password);
         output.write(&rmp_serde::to_vec(&Self {
             is_encrypted: true,

@@ -5,10 +5,10 @@ use chacha20poly1305::aead::stream::EncryptorBE32;
 use chacha20poly1305::aead::KeyInit;
 use sha2::{Sha512, Digest};
 
-use std::fmt::Display;
 use chacha20poly1305::{aead::AeadCore, Key};
 use rand::rngs::OsRng;
-use crate::SResult;
+
+use crate::error::ConvertionError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymmetricCipher {
@@ -43,7 +43,7 @@ impl SymmetricCipher {
         self.buffor_size
     }
 
-    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
+    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> Result<Box<[u8; 64]>, std::io::Error> {
         let mut cipher = EncryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
         let buffor_size = self.buffor_size;
         let mut buffor = vec![0; buffor_size];
@@ -72,7 +72,7 @@ impl SymmetricCipher {
         Ok(ans)
     }
 
-    pub fn decrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> SResult<Box<[u8; 64]>> {
+    pub fn decrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> Result<Box<[u8; 64]>, std::io::Error> {
         let mut cipher = DecryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
         let buffor_size = self.buffor_size + 16;    // + 16 becouse thats what chacha adds - magic value
         let mut buffor = vec![0; buffor_size];
@@ -128,18 +128,6 @@ impl From<[u8; 51]> for SymmetricKey {
         } }
     }
 }
-
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConvertionError;
-
-impl Display for ConvertionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Len should be equal to 51")
-    }
-}
-
-impl std::error::Error for ConvertionError { }
 
 impl TryFrom<Vec<u8>> for SymmetricKey {
     type Error = ConvertionError;

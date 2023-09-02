@@ -3,8 +3,6 @@ extern crate tempdir;
 mod test_utils {
     use std::{path::Path, fmt::Display, fs::{File, remove_file}, io::{Read, Write}};
 
-    use crate::SResult;
-
     use uuid::Uuid;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,8 +17,8 @@ mod test_utils {
     impl std::error::Error for TestUtilError { }
 
     impl TestUtilError {
-        pub(super) fn new(str: &str) -> Box<TestUtilError> {
-            Box::new(Self(str.to_owned()))
+        pub(super) fn new(str: &str) -> TestUtilError {
+            Self(str.to_owned())
         }
     }
 
@@ -30,7 +28,7 @@ mod test_utils {
     }
 
     impl MockFile {
-        pub(super) fn new<P: AsRef<Path>>(path: P) -> SResult<Self> {
+        pub(super) fn new<P: AsRef<Path>>(path: P) -> Result<Self, TestUtilError> {
             if path.as_ref().exists() {
                 Err(TestUtilError::new("File already exists"))
             }
@@ -41,11 +39,11 @@ mod test_utils {
             }
         }
 
-        pub(super) fn validate(&self) -> SResult<()> {
+        pub(super) fn validate(&self) -> Result<(), TestUtilError> {
             self.validate_with(self.path.as_ref())
         }
 
-        pub(super) fn validate_with<P: AsRef<Path>>(&self, path: P) -> SResult<()> {
+        pub(super) fn validate_with<P: AsRef<Path>>(&self, path: P) -> Result<(), TestUtilError> {
             let mut buf = String::new();
             File::open(path.as_ref()).unwrap().read_to_string(&mut buf).unwrap();
             match buf == self.content {

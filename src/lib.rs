@@ -9,7 +9,7 @@ extern crate argon2;
 extern crate rmp_serde;
 
 use std::borrow::BorrowMut;
-use std::{fs::File, fmt::Display};
+use std::fs::File;
 use std::io::Read;
 use std::io::prelude::Write;
 use std::path::Path;
@@ -23,48 +23,15 @@ mod symmertic_cipher;
 pub mod directory_content;
 pub mod signers_list;
 pub mod rsa_private_key_serializer;
+pub mod error;
 
 use directory_content::DirectoryContent;
 use symmertic_cipher::{SymmetricCipher, SymmetricKey};
+use error::{EncryptedFileError, EncryptedFileResult};
 
 const FILE_CONETENT_NAME: &str = "file";
 const FILE_KEY_NAME: &str = "key";
 const FILE_SIGNATURE_NAME: &str = "signature";
-
-type SResult<T> = Result<T, Box<dyn std::error::Error>>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EncryptedFileError {
-    FileAlreadyExists,
-    // InvalidSignatureFile,
-    FileDoesNotExist,
-    FileIsNotSigned,
-    FileKeyIsMissing,
-    FileContentIsMissing,
-    InvalidPath,
-    DirectoryDoesNotExist,
-    ThisIsNotADirectory,
-    ContentIsUnknown,
-}
-
-impl Display for EncryptedFileError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            EncryptedFileError::FileAlreadyExists => "FileAlreadyExists",
-            // EncryptedFileError::InvalidSignatureFile => "InvalidSignatureFile",
-            EncryptedFileError::FileDoesNotExist => "FileDoesNotExist",
-            EncryptedFileError::FileIsNotSigned => "FileIsNotSigned",
-            EncryptedFileError::FileKeyIsMissing => "FileKeyIsMissing",
-            EncryptedFileError::FileContentIsMissing => "FileContentIsMissing",
-            EncryptedFileError::InvalidPath => "InvalidPath",
-            EncryptedFileError::DirectoryDoesNotExist => "DirectoryDoesNotExist",
-            EncryptedFileError::ThisIsNotADirectory => "ThisIsNotADirectory",
-            EncryptedFileError::ContentIsUnknown => "ContentIsUnknown",
-        })
-    }
-}
-
-impl std::error::Error for EncryptedFileError { }
 
 pub struct EncryptedFile {
     file: File,
@@ -74,7 +41,7 @@ pub struct EncryptedFile {
 }
 
 impl EncryptedFile {
-    pub fn new<P: AsRef<Path>>(path: P) -> SResult<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let path = path.as_ref();
         if !path.exists() {
             let file = File::create(path)?;
@@ -108,7 +75,7 @@ impl EncryptedFile {
         self.directory_content.as_ref()
     }
 
-    pub fn get_directory_content(&mut self) -> SResult<&DirectoryContent> {
+    pub fn get_directory_content(&mut self) -> Result<&DirectoryContent, EncryptedFileError> {
         match self.directory_content.is_some() {
             true => Ok(self.get_directory_content_soft().unwrap()),
             false => self.get_directory_content_hard(),
@@ -126,7 +93,7 @@ impl EncryptedFile {
         }
     }
 
-    pub fn get_directory_content_hard(&mut self) -> SResult<&DirectoryContent> {
+    pub fn get_directory_content_hard(&mut self) -> Result<&DirectoryContent, EncryptedFileError> {
         let archive = ZipArchive::new(&self.file)?;
         let mut ans = DirectoryContent::new();
         for name in archive.file_names() {
@@ -144,14 +111,14 @@ impl EncryptedFile {
         Ok(self.directory_content.as_ref().unwrap())
     }
 
-    fn sign_file(&self, dst_path: &str, file_hash: &[u8; 64], private_key: &RsaPrivateKey) -> SResult<()> {
+    fn sign_file(&self, dst_path: &str, file_hash: &[u8; 64], private_key: &RsaPrivateKey) -> Result<(), EncryptedFileError> {
         let mut zip = ZipWriter::new_append(&self.file)?;
         zip.start_file(format!("content/{}/{}", dst_path, FILE_SIGNATURE_NAME), FileOptions::default())?;
         zip.write(&private_key.sign_with_rng(&mut OsRng, Pss::new::<Sha512>(), file_hash)?)?;
         Ok(())
     }
 
-    fn verify_signature(&self, src_path: &str, file_hash: &[u8; 64], public_key: &RsaPublicKey) -> SResult<()> {
+    fn verify_signature(&self, src_path: &str, file_hash: &[u8; 64], public_key: &RsaPublicKey) -> Result<(), EncryptedFileError> {
         let mut zip = ZipArchive::new(&self.file)?;
         let mut buf = Vec::new();
         // todo!("Check size");
@@ -160,7 +127,7 @@ impl EncryptedFile {
         Ok(())
     }
 
-    fn add_file_digest<I: Read>(&self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> SResult<Box<[u8; 64]>> {
+    fn add_file_digest<I: Read>(&self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> Result<Box<[u8; 64]>, EncryptedFileError> {
         let dst = format!("content/{}", dst_path);
         let key = SymmetricKey::new();
         let mut zip = ZipWriter::new_append(&self.file)?;
@@ -173,7 +140,7 @@ impl EncryptedFile {
         Ok(dig)
     }
 
-    fn decrypt_file_digest<O: Write>(&self, src: &str, mut dst: O, private_key: &RsaPrivateKey) -> SResult<Box<[u8; 64]>> {
+    fn decrypt_file_digest<O: Write>(&self, src: &str, mut dst: O, private_key: &RsaPrivateKey) -> Result<Box<[u8; 64]>, EncryptedFileError> {
         let mut zip = ZipArchive::new(&self.file)?;
         let key = {
             let mut zipfile = zip.by_name(format!("content/{}/{}", src, FILE_KEY_NAME).as_str())?;
@@ -186,7 +153,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
-    pub fn add_file<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> SResult<()> {
+    pub fn add_file<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey) -> Result<(), EncryptedFileError> {
         if self.get_directory_content().unwrap().get_file(dst_path).is_some() {
             return Err(EncryptedFileError::FileAlreadyExists.into());
         }
@@ -195,7 +162,7 @@ impl EncryptedFile {
         Ok(())
     }
     
-    pub fn add_file_and_sign<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> SResult<()> {
+    pub fn add_file_and_sign<I: Read>(&mut self, src: I, dst_path: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> Result<(), EncryptedFileError> {
         if self.get_directory_content().unwrap().get_file(dst_path).is_some() {
             return Err(EncryptedFileError::FileAlreadyExists.into());
         }
@@ -204,7 +171,7 @@ impl EncryptedFile {
         Ok(())
     }
 
-    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey) -> SResult<()> {
+    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey) -> Result<(), EncryptedFileError> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -221,7 +188,7 @@ impl EncryptedFile {
         }
     }
 
-    pub fn decrypt_file_and_verify<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<()> {
+    pub fn decrypt_file_and_verify<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> Result<(), EncryptedFileError> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -241,7 +208,7 @@ impl EncryptedFile {
         }
     }
 
-    pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Option<String>> {
+    pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &RsaPrivateKey, signers_list: &SignersList) -> Result<Option<String>, EncryptedFileError> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -266,7 +233,7 @@ impl EncryptedFile {
         }
     }
 
-    pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey) -> SResult<Vec<(Box<Path>, SResult<()>)>> {
+    pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
         if !src.as_ref().is_dir() {
             return Err(EncryptedFileError::ThisIsNotADirectory.into());
         }
@@ -292,7 +259,7 @@ impl EncryptedFile {
     }
 
     // Directory is not signed, but only every file it contains
-    pub fn add_directory_and_sign<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> SResult<Vec<(Box<Path>, SResult<()>)>> {
+    pub fn add_directory_and_sign<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
         if !src.as_ref().is_dir() {
             return Err(EncryptedFileError::ThisIsNotADirectory.into());
         }
@@ -317,7 +284,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
-    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey) -> SResult<Vec<(String, SResult<()>)>> {
+    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<()>)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -341,7 +308,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
-    pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> SResult<Vec<(String, SResult<()>)>> {
+    pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, public_key: &RsaPublicKey) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<()>)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -365,7 +332,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
-    pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, signers_list: &SignersList) -> SResult<Vec<(String, SResult<Option<String>>)>> {
+    pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &RsaPrivateKey, signers_list: &SignersList) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<Option<String>>)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
