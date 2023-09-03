@@ -42,6 +42,9 @@ impl SignersList {
     }
     
     pub fn add_signer(&mut self, name: &str, rsa_public_key: &RsaPublicKey) -> SignersListResult<()> {
+        if self.signers.contains_key(name) {
+            return Err(SignersListError::SignerAlreadyExist);
+        }
         let uuid = {
             let mut uuid = Uuid::new_v4().to_string();
             while self.used_uuid.contains(&uuid) {
