@@ -68,9 +68,14 @@ impl SignersList {
         }
     }
 
-    pub fn delete_signer(&mut self, name: &str) {
+    pub fn delete_signer(&mut self, name: &str) -> SignersListResult<()> {
         if let Some(uuid) = self.signers.remove(name) {
-            let _ = remove_file(self.path.join(uuid));
+            remove_file(self.path.join(uuid))?;
+            File::create(self.path.join(Self::MANIFEST))?.write(&serde_json::to_vec(&self.signers)?)?;
+            Ok(())
+        }
+        else {
+            Err(SignersListError::SignerDoesNotExist)
         }
     }
 

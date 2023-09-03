@@ -347,6 +347,26 @@ mod signers_list_tests {
         assert!(!signers_list.contains("Stewiee"));
         assert!(signers_list.is_valid("Stewiee").is_err());
     }
+
+    #[test]
+    fn deleting() {
+        let tmp_dir = TempDir::new("the-lock-test").unwrap();
+        let mut signers_list = SignersList::new(tmp_dir.path()).unwrap();
+        signers_list.add_signer("Peter", &RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
+        signers_list.add_signer("Stewie", &RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
+        assert!(signers_list.delete_signer("Peter").is_ok());
+        assert!(signers_list.delete_signer("Peter").is_err());
+        drop(signers_list);
+        let signers_list = SignersList::open(tmp_dir.path()).unwrap();
+        assert!(!signers_list.contains("Peter"));
+        assert!(signers_list.is_valid("Peter").is_err());
+        assert!(signers_list.contains("Stewie"));
+        assert!(signers_list.is_valid("Stewie").is_ok());
+        assert!(signers_list.contains("Stewie"));
+        assert!(signers_list.is_valid("Stewie").is_ok());
+        assert!(!signers_list.contains("Stewiee"));
+        assert!(signers_list.is_valid("Stewiee").is_err());
+    }
 }
 
 mod encryption_cipher_tests {
