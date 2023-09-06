@@ -72,8 +72,8 @@ impl RsaPrivateKeySerializer {
         Argon2::default().hash_password_into(password, b"saltAndPeper", &mut buf).unwrap(); // TODO get rid of this unwrap
         let mut key = [0; AES_256_KEY_LEN];
         let mut iv = [0; Self::IV_SIZE];
-        let _ = buf.iter().take(AES_256_KEY_LEN).enumerate().map(|(i, v)| key[i] = *v);
-        let _ = buf.into_iter().skip(AES_256_KEY_LEN).enumerate().map(|(i, v)| iv[i] = v);
+        buf.iter().take(AES_256_KEY_LEN).enumerate().for_each(|(i, v)| key[i] = *v);
+        buf.into_iter().skip(AES_256_KEY_LEN).enumerate().for_each(|(i, v)| iv[i] = v);
         (key, iv)
     }
 
