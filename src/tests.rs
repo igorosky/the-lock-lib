@@ -76,13 +76,17 @@ mod lib_tests {
 
     use std::fs::create_dir;
 
+    use crate::asymetric_key::*;
+
+    const KEY_SIZE: usize = 4096;
+
     #[test]
     fn adding_file() {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.into()).unwrap();
         ef.get_directory_content().unwrap();
     }
 
@@ -91,8 +95,8 @@ mod lib_tests {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.to_public_key()).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into()).unwrap();
         ef.decrypt_file("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key).unwrap();
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
@@ -103,9 +107,9 @@ mod lib_tests {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.to_public_key(), &key).unwrap();
-        ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.to_public_key()).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
+        ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap();
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -116,10 +120,10 @@ mod lib_tests {
         let signers_dir = TempDir::new("the-lock-test").unwrap();
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.to_public_key(), &key).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), key.get_rsa_private_key()).unwrap();
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
-        signers_list.add_signer("Rafał", &key.to_public_key()).unwrap();
+        signers_list.add_signer("Rafał", &key.get_rsa_public_key()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
         assert_eq!(Some("Rafał".to_owned()), ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap());
         ef.get_directory_content().unwrap();
@@ -132,8 +136,8 @@ mod lib_tests {
         let signers_dir = TempDir::new("the-lock-test").unwrap();
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.to_public_key(), &key).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
         signers_list.add_signer("Rafał", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
@@ -154,8 +158,8 @@ mod lib_tests {
         let _mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
         let _mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.to_public_key()).is_ok());
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.into()).is_ok());
     }
     
     #[test]
@@ -170,8 +174,8 @@ mod lib_tests {
         let mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
         let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
-        let key = rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.to_public_key()).is_ok());
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        assert!(ef.add_directory(dir_to_encrypt, "folder", &(&key).into()).is_ok());
         ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap();
         create_dir(tmp_dir.path().join("output")).unwrap();
         ef.decrypt_directory("folder/dir", tmp_dir.path().join("output"), &key).unwrap();
@@ -277,41 +281,6 @@ mod directory_content_tests {
     }
 }
 
-mod rsa_private_key_serializer_tests {
-    use std::fs::File;
-
-    use tempdir::TempDir;
-
-    use crate::rsa_private_key_serializer::RsaPrivateKeySerializer;
-
-    #[test]
-    fn key_generation() {
-        let _ = RsaPrivateKeySerializer::new(2048);
-    }
-
-    #[test]
-    fn key_serialization() {
-        let tmp_dir = TempDir::new("the-lock-test").unwrap();
-        let key_path = tmp_dir.path().join("key");
-        let key = RsaPrivateKeySerializer::new(2048).unwrap();
-        RsaPrivateKeySerializer::save(key, &mut File::create(&key_path).unwrap()).unwrap();
-        let k = RsaPrivateKeySerializer::read(&mut File::open(key_path).unwrap()).unwrap();
-        assert!(!k.is_encrypted());
-        let _ = k.get_key().unwrap();
-    }
-
-    #[test]
-    fn key_encrypted_serialization() {
-        let tmp_dir = TempDir::new("the-lock-test").unwrap();
-        let key_path = tmp_dir.path().join("key_encrypted");
-        let key = RsaPrivateKeySerializer::new(2048).unwrap();
-        RsaPrivateKeySerializer::save_with_password(key, &mut File::create(&key_path).unwrap(), b"password").unwrap();
-        let k = RsaPrivateKeySerializer::read(&mut File::open(key_path).unwrap()).unwrap();
-        assert!(k.is_encrypted());
-        let _ = k.get_encrypted_key(b"password").unwrap();
-    }
-}
-
 mod signers_list_tests {
     use rsa::{RsaPrivateKey, rand_core::OsRng};
     use tempdir::TempDir;
@@ -413,5 +382,27 @@ mod encryption_cipher_tests {
         File::open(path).unwrap().read_to_end(&mut buf).unwrap();
         key = SymmetricKey::try_from(buf).unwrap();
         assert_eq!(key, key_copy);
+    }
+}
+
+mod asymetric_key_tests {
+    use crate::{asymetric_key::*, symmertic_cipher::SymmetricKey};
+    
+    #[test]
+    fn creating_new() {
+        assert!(PrivateKey::new(MIN_RSA_KEY_SIZE).is_ok());
+        assert!(PrivateKey::new(MIN_RSA_KEY_SIZE - 1).is_err());
+    }
+
+    #[test]
+    fn encryption_decryption_test() {
+        let key = PrivateKey::new(MIN_RSA_KEY_SIZE).unwrap();
+        let data: [u8;51] = SymmetricKey::new().into();
+        let encrypted = key.get_public_key().encrypt_symmetric_key(&data).unwrap();
+        assert_ne!(data.to_vec(), encrypted);
+        if let Ok(decrypted) = PrivateKey::new(MIN_RSA_KEY_SIZE).unwrap().decrypt_symmetric_key(&encrypted) {
+            assert_ne!(decrypted, data);
+        }
+        assert_eq!(data, key.decrypt_symmetric_key(&encrypted).unwrap());
     }
 }

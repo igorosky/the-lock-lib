@@ -3,11 +3,46 @@ use std::fmt::Display;
 pub use zip::result::ZipError;
 pub use rsa::errors::Error as RSAError;
 pub use std::io::Error as IOError;
+pub use rand::Error as RngError;
+
+pub type AsymetricKeyResult<T> = Result<T, AsymetricKeyError>;
+
+#[derive(Debug)]
+pub enum AsymetricKeyError {
+    NotAValidSymmetricKey,
+    KeySizeIsTooSmall,
+    RandError(RngError),
+    RSAError(RSAError),
+}
+
+impl Display for AsymetricKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            AsymetricKeyError::NotAValidSymmetricKey => "NotAValidSymmetricKey".to_owned(),
+            AsymetricKeyError::KeySizeIsTooSmall => format!("KeySizeIsTooSmall (at least {})", crate::asymetric_key::MIN_RSA_KEY_SIZE),
+            AsymetricKeyError::RandError(err) => err.to_string(),
+            AsymetricKeyError::RSAError(err) => err.to_string(),
+        })
+    }
+}
+
+impl std::error::Error for AsymetricKeyError { }
+
+impl From<RngError> for AsymetricKeyError {
+    fn from(value: RngError) -> Self {
+        Self::RandError(value)
+    }
+}
+
+impl From<RSAError> for AsymetricKeyError {
+    fn from(value: RSAError) -> Self {
+        Self::RSAError(value)
+    }
+}
 
 pub type DirectoryContentResult<T> = Result<T, ContentError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ContentError {
     FileAlreadyExists,
     DirectoryAlreadyExists,
@@ -40,65 +75,6 @@ impl Display for ConvertionError {
 }
 
 impl std::error::Error for ConvertionError { }
-
-pub type RsaPrivateKeySerializerResult<T> = Result<T, RsaPrivateKeySerializerError>;
-
-#[derive(Debug)]
-pub enum RsaPrivateKeySerializerError {
-    RequestedKeySizeIsTooSmall,
-    KeyIsNotEncrypted,
-    FileIsInvalid,
-    NoKeyToDecrypt,
-    KeyIsEncrypted,
-    WrongPassword,
-    IOError(std::io::Error),
-    RMPSerdeEncodeError(rmp_serde::encode::Error),
-    RMPSerdeDecodeError(rmp_serde::decode::Error),
-    RSAError(rsa::Error),
-}
-
-impl From<std::io::Error> for RsaPrivateKeySerializerError {
-    fn from(value: std::io::Error) -> Self {
-        Self::IOError(value)
-    }
-}
-
-impl From<rmp_serde::encode::Error> for RsaPrivateKeySerializerError {
-    fn from(value: rmp_serde::encode::Error) -> Self {
-        Self::RMPSerdeEncodeError(value)
-    }
-}
-
-impl From<rmp_serde::decode::Error> for RsaPrivateKeySerializerError {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::RMPSerdeDecodeError(value)
-    }
-}
-
-impl From<rsa::Error> for RsaPrivateKeySerializerError {
-    fn from(value: rsa::Error) -> Self {
-        Self::RSAError(value)
-    }
-}
-
-impl Display for RsaPrivateKeySerializerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            RsaPrivateKeySerializerError::RequestedKeySizeIsTooSmall => "RequestedKeySizeIsTooSmall".to_owned(),
-            RsaPrivateKeySerializerError::KeyIsNotEncrypted => "KeyIsNotEncrypted".to_owned(),
-            RsaPrivateKeySerializerError::FileIsInvalid => "FileIsInvalid".to_owned(),
-            RsaPrivateKeySerializerError::NoKeyToDecrypt => "NoKeyToDecrypt".to_owned(),
-            RsaPrivateKeySerializerError::KeyIsEncrypted => "KeyIsEncrypted".to_owned(),
-            RsaPrivateKeySerializerError::WrongPassword => "WrongPassword".to_owned(),
-            RsaPrivateKeySerializerError::IOError(err) => err.to_string(),
-            RsaPrivateKeySerializerError::RMPSerdeEncodeError(err) => err.to_string(),
-            RsaPrivateKeySerializerError::RMPSerdeDecodeError(err) => err.to_string(),
-            RsaPrivateKeySerializerError::RSAError(err) => err.to_string(),
-        })
-    }
-}
-
-impl std::error::Error for RsaPrivateKeySerializerError { }
 
 pub type SignersListResult<T> = Result<T, SignersListError>;
 
@@ -178,6 +154,7 @@ pub enum EncryptedFileError {
     RSAError(RSAError),
     IOError(IOError),
     SymmetricKeyConvertionError,
+    AsymetricKeyError(AsymetricKeyError),
 }
 
 impl From<ZipError> for EncryptedFileError {
@@ -210,6 +187,12 @@ impl From<ConvertionError> for EncryptedFileError {
     }
 }
 
+impl From<AsymetricKeyError> for EncryptedFileError {
+    fn from(value: AsymetricKeyError) -> Self {
+        Self::AsymetricKeyError(value)
+    }
+}
+
 impl Display for EncryptedFileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
@@ -228,6 +211,7 @@ impl Display for EncryptedFileError {
             EncryptedFileError::RSAError(err) => err.to_string(),
             EncryptedFileError::IOError(err) => err.to_string(),
             EncryptedFileError::SymmetricKeyConvertionError => "SymmetricKeyConvertionError".to_owned(),
+            EncryptedFileError::AsymetricKeyError(err) => err.to_string(),
         })
     }
 }
