@@ -54,7 +54,8 @@ impl RsaPrivateKeySerializer {
         }
         let (key, iv) = Self::copute_key_and_iv(password);
         let cipher = Cipher::new_256(&key);
-        let decrypted = cipher.cbc_decrypt(&iv, &self.encrypted_key.take().ok_or(RsaPrivateKeySerializerError::NoKeyToDecrypt)?);
+        let data = self.encrypted_key.take().ok_or(RsaPrivateKeySerializerError::NoKeyToDecrypt)?;
+        let decrypted = std::panic::catch_unwind(||{cipher.cbc_decrypt(&iv, &data)}).map_err(|_| RsaPrivateKeySerializerError::WrongPassword)?;
         self.decrypted_key = Some(rmp_serde::from_slice(&decrypted)?);
         Ok(())
     }
@@ -68,7 +69,7 @@ impl RsaPrivateKeySerializer {
 
     fn copute_key_and_iv(password: &[u8]) -> ([u8; AES_256_KEY_LEN], [u8; Self::IV_SIZE]) { // Yep that iv is kinda pointless and it doesn't fulfill it's role
         let mut buf = [0; AES_256_KEY_LEN + Self::IV_SIZE];
-        Argon2::default().hash_password_into(password, b"saltAndPeper", &mut buf).unwrap();
+        Argon2::default().hash_password_into(password, b"saltAndPeper", &mut buf).unwrap(); // TODO get rid of this unwrap
         let mut key = [0; AES_256_KEY_LEN];
         let mut iv = [0; Self::IV_SIZE];
         let _ = buf.iter().take(AES_256_KEY_LEN).enumerate().map(|(i, v)| key[i] = *v);
