@@ -105,23 +105,26 @@ impl SymmetricCipher {
     }
 }
 
+pub(crate) const SYMMETRIC_KEY_SIZE: usize = 32;
+pub(crate) const SYMMETRIC_NONE_SIZE: usize = 19;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymmetricKey {
-    key: [u8; 32],
-    nonce: [u8; 19],
+    key: [u8; SYMMETRIC_KEY_SIZE],
+    nonce: [u8; SYMMETRIC_NONE_SIZE],
 }
 
-impl From<[u8; 51]> for SymmetricKey {
-    fn from(value: [u8; 51]) -> Self {
+impl From<[u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE]> for SymmetricKey {
+    fn from(value: [u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE]) -> Self {
         Self { key: {
-            let mut key = [0; 32];
-            for (i, v) in value.iter().take(32).enumerate() {
+            let mut key = [0; SYMMETRIC_KEY_SIZE];
+            for (i, v) in value.iter().take(SYMMETRIC_KEY_SIZE).enumerate() {
                 key[i] = *v;
             }
             key
         }, nonce: {
-            let mut nonce = [0; 19];
-            for (i, v) in value.into_iter().skip(32).enumerate() {
+            let mut nonce = [0; SYMMETRIC_NONE_SIZE];
+            for (i, v) in value.into_iter().skip(SYMMETRIC_KEY_SIZE).enumerate() {
                 nonce[i] = v;
             }
             nonce
@@ -133,19 +136,19 @@ impl TryFrom<Vec<u8>> for SymmetricKey {
     type Error = ConvertionError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 51 {
+        if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
             Err(ConvertionError)
         }
         else {
             Ok(Self { key: {
-                let mut key = [0; 32];
-                for (i, v) in value.iter().take(32).enumerate() {
+                let mut key = [0; SYMMETRIC_KEY_SIZE];
+                for (i, v) in value.iter().take(SYMMETRIC_KEY_SIZE).enumerate() {
                     key[i] = *v;
                 }
                 key
             }, nonce: {
-                let mut nonce = [0; 19];
-                for (i, v) in value.into_iter().skip(32).enumerate() {
+                let mut nonce = [0; SYMMETRIC_NONE_SIZE];
+                for (i, v) in value.into_iter().skip(SYMMETRIC_KEY_SIZE).enumerate() {
                     nonce[i] = v;
                 }
                 nonce
@@ -158,19 +161,19 @@ impl TryFrom<&Vec<u8>> for SymmetricKey {
     type Error = ConvertionError;
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() != 51 {
+        if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
             Err(ConvertionError)
         }
         else {
             Ok(Self { key: {
-                let mut key = [0; 32];
-                for (i, v) in value.iter().take(32).enumerate() {
+                let mut key = [0; SYMMETRIC_KEY_SIZE];
+                for (i, v) in value.iter().take(SYMMETRIC_KEY_SIZE).enumerate() {
                     key[i] = *v;
                 }
                 key
             }, nonce: {
-                let mut nonce = [0; 19];
-                for (i, v) in value.into_iter().skip(32).enumerate() {
+                let mut nonce = [0; SYMMETRIC_NONE_SIZE];
+                for (i, v) in value.into_iter().skip(SYMMETRIC_KEY_SIZE).enumerate() {
                     nonce[i] = *v;
                 }
                 nonce
@@ -183,19 +186,19 @@ impl TryFrom<&[u8]> for SymmetricKey {
     type Error = ConvertionError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != 51 {
+        if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
             Err(ConvertionError)
         }
         else {
             Ok(Self { key: {
-                let mut key = [0; 32];
-                for (i, v) in value.iter().take(32).enumerate() {
+                let mut key = [0; SYMMETRIC_KEY_SIZE];
+                for (i, v) in value.iter().take(SYMMETRIC_KEY_SIZE).enumerate() {
                     key[i] = *v;
                 }
                 key
             }, nonce: {
-                let mut nonce = [0; 19];
-                for (i, v) in value.into_iter().skip(32).enumerate() {
+                let mut nonce = [0; SYMMETRIC_NONE_SIZE];
+                for (i, v) in value.into_iter().skip(SYMMETRIC_KEY_SIZE).enumerate() {
                     nonce[i] = *v;
                 }
                 nonce
@@ -204,9 +207,9 @@ impl TryFrom<&[u8]> for SymmetricKey {
     }
 }
 
-impl Into<[u8; 51]> for SymmetricKey {
-    fn into(self) -> [u8; 51] {
-        let mut ans = [0; 51];
+impl Into<[u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE]> for SymmetricKey {
+    fn into(self) -> [u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE] {
+        let mut ans = [0; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE];
         for (i, v) in self.key.into_iter().chain(self.nonce.into_iter()).enumerate() {
             ans[i] = v;
         }
@@ -216,9 +219,9 @@ impl Into<[u8; 51]> for SymmetricKey {
 
 impl SymmetricKey {
     pub fn new() -> Self {
-        Self::from_ket_and_nonce(XChaCha20Poly1305::generate_key(&mut OsRng), {
-            let mut ans = [0; 19];
-            for (i, v) in XChaCha20Poly1305::generate_nonce(&mut OsRng).get(0..19).unwrap().into_iter().enumerate() {
+        Self::from_key_and_nonce(XChaCha20Poly1305::generate_key(&mut OsRng), {
+            let mut ans = [0; SYMMETRIC_NONE_SIZE];
+            for (i, v) in XChaCha20Poly1305::generate_nonce(&mut OsRng).get(0..SYMMETRIC_NONE_SIZE).unwrap().into_iter().enumerate() {
                 ans[i] = *v;
             }
             ans
@@ -229,13 +232,13 @@ impl SymmetricKey {
         Key::from(self.key)
     }
 
-    pub fn get_nonce(&self) -> &[u8; 19] {
+    pub fn get_nonce(&self) -> &[u8; SYMMETRIC_NONE_SIZE] {
         &self.nonce
     }
 
-    pub fn from_ket_and_nonce(key: Key, nonce: [u8; 19]) -> Self {
+    pub fn from_key_and_nonce(key: Key, nonce: [u8; SYMMETRIC_NONE_SIZE]) -> Self {
         Self { key: {
-            let mut ans = [0; 32];
+            let mut ans = [0; SYMMETRIC_KEY_SIZE];
             for (i, v) in key.into_iter().enumerate() {
                 ans[i] = v;
             }
