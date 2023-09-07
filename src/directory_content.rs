@@ -11,12 +11,13 @@ pub struct SingleEncryptedFile {
     has_content: bool,
     has_key: bool,
     is_signed: bool,
+    has_digest: bool,
 }
 
 impl Default for SingleEncryptedFile {
     #[inline]
     fn default() -> Self {
-        Self { has_content: false, has_key: false, is_signed: false }
+        Self { has_content: false, has_key: false, is_signed: false, has_digest: false }
     }
 }
 
@@ -26,35 +27,53 @@ impl SingleEncryptedFile {
         Self::default()
     }
 
-    pub fn new_with_val(has_content: bool, has_key: bool, is_signed: bool) -> Self {
-        Self { has_content: has_content, has_key: has_key, is_signed: is_signed }
+    #[inline]
+    pub fn new_with_val(has_content: bool, has_key: bool, is_signed: bool, has_digest: bool) -> Self {
+        Self { has_content, has_key, is_signed, has_digest }
     }
 
+    #[inline]
     pub fn content(&mut self, content: bool) -> &mut Self {
         self.has_content = content;
         self
     }
 
+    #[inline]
     pub fn has_content(&self) -> bool {
         self.has_content
     }
 
+    #[inline]
     pub fn key(&mut self, key: bool) -> &mut Self {
         self.has_key = key;
         self
     }
 
+    #[inline]
     pub fn has_key(&self) -> bool {
         self.has_key
     }
 
+    #[inline]
     pub fn signed(&mut self, v: bool) -> &mut Self {
         self.is_signed = v;
         self
     }
 
+    #[inline]
     pub fn is_signed(&self) -> bool {
         self.is_signed
+    }
+
+    #[inline]
+    pub fn digest(&mut self, v: bool) -> &mut Self {
+        self.has_digest = v;
+        self
+    }
+
+    #[inline]
+    pub fn has_digest(&self) -> bool {
+        self.has_digest
     }
 }
 
@@ -224,9 +243,9 @@ impl DirectoryContent {
             Ok(self.get_file_mut(path).unwrap())
         }
         else {
-            Ok(self.add_file_with_path(path)?)
+            self.add_file_with_path(path)
         }
-        // todo!("Optimize it somehow")
+        // todo!("Optimize it somehow - borrow checker does its best to stop me")
     }
 
     // pub(crate) fn get_or_create_dir(&mut self, path: &str) -> DirectoryContentResult<&DirectoryContent> {

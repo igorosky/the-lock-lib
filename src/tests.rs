@@ -99,7 +99,7 @@ mod lib_tests {
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
         ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into()).unwrap();
-        ef.decrypt_file("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key).unwrap();
+        assert!(ef.decrypt_file("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key).unwrap());
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -111,7 +111,7 @@ mod lib_tests {
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
         ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
-        ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap();
+        assert!(ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap());
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -128,7 +128,7 @@ mod lib_tests {
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Rafał", &key.get_rsa_public_key()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        assert_eq!(Some("Rafał".to_owned()), ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap());
+        assert_eq!(Some("Rafał".to_owned()), ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap().1);
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -145,7 +145,7 @@ mod lib_tests {
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
         signers_list.add_signer("Rafał", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        assert_eq!(None, ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap());
+        assert_eq!(None, ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap().1);
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
