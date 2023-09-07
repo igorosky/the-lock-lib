@@ -3,7 +3,8 @@ extern crate tempdir;
 mod test_utils {
     use std::{path::Path, fmt::Display, fs::{File, remove_file}, io::{Read, Write}};
 
-    use uuid::Uuid;
+    use rand::RngCore;
+    use rsa::rand_core::OsRng;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct TestUtilError(String);
@@ -24,7 +25,7 @@ mod test_utils {
 
     pub(super) struct MockFile {
         path: Box<Path>,
-        content: String,
+        content: Vec<u8>,
     }
 
     impl MockFile {
@@ -33,9 +34,10 @@ mod test_utils {
                 Err(TestUtilError::new("File already exists"))
             }
             else {
-                let content = Uuid::new_v4().to_string();
-                File::create(path.as_ref()).unwrap().write(content.as_bytes()).unwrap();
-                Ok(Self { path: Box::from(path.as_ref()), content: content })
+                let mut content = vec![0;32];
+                OsRng.fill_bytes(&mut content);
+                File::create(path.as_ref()).unwrap().write(&content).unwrap();
+                Ok(Self { path: Box::from(path.as_ref()), content })
             }
         }
 
@@ -44,8 +46,8 @@ mod test_utils {
         }
 
         pub(super) fn validate_with<P: AsRef<Path>>(&self, path: P) -> Result<(), TestUtilError> {
-            let mut buf = String::new();
-            File::open(path.as_ref()).unwrap().read_to_string(&mut buf).unwrap();
+            let mut buf = Vec::new();
+            File::open(path.as_ref()).unwrap().read_to_end(&mut buf).unwrap();
             match buf == self.content {
                 true => Ok(()),
                 false => Err(TestUtilError::new("File is not valid")),
@@ -114,6 +116,7 @@ mod lib_tests {
         mock_file.validate().unwrap();
     }
 
+    #[cfg(feature = "signers-list")]
     #[test]
     fn decrypt_file_and_find_signer() {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
@@ -130,6 +133,7 @@ mod lib_tests {
         mock_file.validate().unwrap();
     }
 
+    #[cfg(feature = "signers-list")]
     #[test]
     fn decrypt_file_and_find_signer_none() {
         let tmp_dir = TempDir::new("the-lock-test").unwrap();
@@ -281,6 +285,7 @@ mod directory_content_tests {
     }
 }
 
+#[cfg(feature = "signers-list")]
 mod signers_list_tests {
     use rsa::{RsaPrivateKey, rand_core::OsRng};
     use tempdir::TempDir;
@@ -403,6 +408,6 @@ mod asymetric_key_tests {
         if let Ok(decrypted) = PrivateKey::new(MIN_RSA_KEY_SIZE).unwrap().decrypt_symmetric_key(&encrypted) {
             assert_ne!(decrypted, data);
         }
-        assert_eq!(data, key.decrypt_symmetric_key(&encrypted).unwrap());
+        assert_eq!(data.to_vec(), key.decrypt_symmetric_key(&encrypted).unwrap());
     }
 }

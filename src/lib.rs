@@ -1,12 +1,9 @@
+#[cfg(any(feature = "serde", feature = "signers-list"))]
 extern crate serde;
-extern crate serde_json;
-extern crate libaes;
 extern crate rsa;
 extern crate chacha20poly1305;
 extern crate sha2;
 extern crate rand;
-extern crate argon2;
-extern crate rmp_serde;
 
 use std::borrow::BorrowMut;
 use std::fs::File;
@@ -16,12 +13,14 @@ use std::path::Path;
 use asymetric_key::{PublicKey, PrivateKey};
 use rsa::{RsaPublicKey, RsaPrivateKey, Pss};
 use sha2::Sha512;
+#[cfg(feature = "signers-list")]
 use signers_list::SignersList;
 use zip::{ZipArchive, ZipWriter, write::FileOptions};
 use rand::rngs::OsRng;
 
 mod symmertic_cipher;
 pub mod directory_content;
+#[cfg(feature = "signers-list")]
 pub mod signers_list;
 pub mod error;
 pub mod asymetric_key;
@@ -148,7 +147,7 @@ impl EncryptedFile {
             let mut buf: Vec<u8> = Vec::new();
             // todo!("Check size");
             zipfile.read_to_end(&mut buf)?;
-            SymmetricKey::from(private_key.decrypt_symmetric_key(&buf)?)
+            SymmetricKey::try_from(private_key.decrypt_symmetric_key(&buf)?)?
         };
         let ans = self.symmetric_cipher.decrypt_file(&key, self.associated_data(), &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
         Ok(ans)
@@ -209,6 +208,7 @@ impl EncryptedFile {
         }
     }
 
+    #[cfg(feature = "signers-list")]
     pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey, signers_list: &SignersList) -> Result<Option<String>, EncryptedFileError> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
@@ -333,6 +333,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
+    #[cfg(feature = "signers-list")]
     pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, signers_list: &SignersList) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<Option<String>>)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());

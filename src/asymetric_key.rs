@@ -1,15 +1,17 @@
+use chacha20poly1305::{XChaCha20Poly1305, KeyInit, Key, XNonce, aead::Aead};
 use rsa::{RsaPublicKey, RsaPrivateKey, Oaep};
 use rand::{rngs::OsRng, Rng};
-use crate::{symmertic_cipher::{SYMMETRIC_KEY_SIZE, SYMMETRIC_NONE_SIZE}, error::{AsymetricKeyResult, AsymetricKeyError}};
+use crate::error::{AsymetricKeyResult, AsymetricKeyError};
 
-pub const MIN_RSA_KEY_SIZE: usize = 1024;
-
-const TOTAL_SYMMETRIC_KEY_SIZE: usize = SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE;
+pub const MIN_RSA_KEY_SIZE: usize = 2048;
+const SYMMETRIC_KEY_SIZE: usize = 32;
+const SYMMETRIC_NONE_SIZE: usize = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrivateKey {
     rsa_key: RsaPrivateKey,
-    symmetric_key: [u8; TOTAL_SYMMETRIC_KEY_SIZE],
+    chacha_key: [u8; SYMMETRIC_KEY_SIZE],
+    chacha_nonce: [u8; SYMMETRIC_NONE_SIZE],
 }
 
 impl PrivateKey {
@@ -18,10 +20,11 @@ impl PrivateKey {
         if size < MIN_RSA_KEY_SIZE {
             return Err(AsymetricKeyError::KeySizeIsTooSmall);
         }
-        let mut symmetric_key = [0; TOTAL_SYMMETRIC_KEY_SIZE];
-        OsRng.try_fill(&mut symmetric_key[..SYMMETRIC_KEY_SIZE])?;
-        OsRng.try_fill(&mut symmetric_key[SYMMETRIC_KEY_SIZE..])?;
-        Ok(Self { rsa_key: RsaPrivateKey::new(&mut OsRng, size)?, symmetric_key})
+        let mut chacha_key = [0; SYMMETRIC_KEY_SIZE];
+        OsRng.try_fill(&mut chacha_key)?;
+        let mut chacha_nonce = [0; SYMMETRIC_NONE_SIZE];
+        OsRng.try_fill(&mut chacha_nonce)?;
+        Ok(Self { rsa_key: RsaPrivateKey::new(&mut OsRng, size)?, chacha_key, chacha_nonce })
     }
 
     #[inline]
@@ -45,38 +48,35 @@ impl PrivateKey {
     }
 
     #[inline]
-    pub fn decrypt_symmetric_key(&self, data: &Vec<u8>) -> AsymetricKeyResult<[u8; TOTAL_SYMMETRIC_KEY_SIZE]> {
-        let decrypted: Vec<u8> = self.rsa_key.decrypt(Oaep::new::<sha2::Sha256>(), data)?
-                                    .into_iter()
-                                    .zip(self.symmetric_key)
-                                    .map(|(data, key)| data ^ key)
-                                    .collect();
-        if decrypted.len() != TOTAL_SYMMETRIC_KEY_SIZE {
-            return Err(AsymetricKeyError::NotAValidSymmetricKey);
-        }
-        let mut ans = [0; TOTAL_SYMMETRIC_KEY_SIZE];
-        ans.iter_mut().zip(decrypted).for_each(|(v, a)| *v = a);
-        Ok(ans)
+    pub fn decrypt_symmetric_key(&self, data: &[u8]) -> AsymetricKeyResult<Vec<u8>> {
+        Ok(
+            XChaCha20Poly1305::new(&Key::from(self.chacha_key))
+                .decrypt(
+                    &XNonce::from(self.chacha_nonce),
+                    self.rsa_key.decrypt(
+                        Oaep::new::<sha2::Sha256>(),
+                        data
+                    )?.as_ref()
+                )?
+        )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicKey {
     rsa_key: RsaPublicKey,
-    symmetric_key: [u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE],
+    chacha_key: [u8; SYMMETRIC_KEY_SIZE],
+    chacha_nonce: [u8; SYMMETRIC_NONE_SIZE],
 }
 
 impl PublicKey {
     #[inline]
-    pub fn encrypt_symmetric_key(&self, data: &[u8; TOTAL_SYMMETRIC_KEY_SIZE]) -> AsymetricKeyResult<Vec<u8>> {
+    pub fn encrypt_symmetric_key(&self, data: &[u8]) -> AsymetricKeyResult<Vec<u8>> {
         Ok(
             self.rsa_key.encrypt(
                 &mut OsRng,
                 Oaep::new::<sha2::Sha256>(),
-                &data.into_iter()
-                        .zip(self.symmetric_key)
-                        .map(|(data, key)| *data ^ key)
-                        .collect::<Vec<u8>>()
+                &XChaCha20Poly1305::new(&Key::from(self.chacha_key)).encrypt(&XNonce::from(self.chacha_nonce), data)?
             )?
         )
     }
@@ -95,6 +95,6 @@ impl From<PrivateKey> for PublicKey {
 
 impl From<&PrivateKey> for PublicKey {
     fn from(value: &PrivateKey) -> Self {
-        Self { rsa_key: value.get_rsa_public_key(), symmetric_key: value.symmetric_key }
+        Self { rsa_key: value.get_rsa_public_key(), chacha_key: value.chacha_key, chacha_nonce: value.chacha_nonce }
     }
 }

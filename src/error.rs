@@ -4,6 +4,7 @@ pub use zip::result::ZipError;
 pub use rsa::errors::Error as RSAError;
 pub use std::io::Error as IOError;
 pub use rand::Error as RngError;
+pub use chacha20poly1305::aead::Error as ChaChaError;
 
 pub type AsymetricKeyResult<T> = Result<T, AsymetricKeyError>;
 
@@ -11,6 +12,7 @@ pub type AsymetricKeyResult<T> = Result<T, AsymetricKeyError>;
 pub enum AsymetricKeyError {
     NotAValidSymmetricKey,
     KeySizeIsTooSmall,
+    XChaCha20Poly1305Error(ChaChaError),
     RandError(RngError),
     RSAError(RSAError),
 }
@@ -20,6 +22,7 @@ impl Display for AsymetricKeyError {
         write!(f, "{}", match self {
             AsymetricKeyError::NotAValidSymmetricKey => "NotAValidSymmetricKey".to_owned(),
             AsymetricKeyError::KeySizeIsTooSmall => format!("KeySizeIsTooSmall (at least {})", crate::asymetric_key::MIN_RSA_KEY_SIZE),
+            AsymetricKeyError::XChaCha20Poly1305Error(err) => err.to_string(),
             AsymetricKeyError::RandError(err) => err.to_string(),
             AsymetricKeyError::RSAError(err) => err.to_string(),
         })
@@ -37,6 +40,12 @@ impl From<RngError> for AsymetricKeyError {
 impl From<RSAError> for AsymetricKeyError {
     fn from(value: RSAError) -> Self {
         Self::RSAError(value)
+    }
+}
+
+impl From<ChaChaError> for AsymetricKeyError {
+    fn from(value: chacha20poly1305::aead::Error) -> Self {
+        Self::XChaCha20Poly1305Error(value)
     }
 }
 
@@ -76,64 +85,55 @@ impl Display for ConvertionError {
 
 impl std::error::Error for ConvertionError { }
 
-pub type SignersListResult<T> = Result<T, SignersListError>;
-
-#[derive(Debug)]
-pub enum SignersListError {
-    DirectoryDoesNotExit,
-    ItIsNotAnDirectory,
-    SignerDoesNotExist,
-    SignerIsNotValid,
-    MoreThanOneSignerHasSameKeyFile,
-    SignerAlreadyExist,
-    IOError(std::io::Error),
-    RPMSerdeEncodeError(rmp_serde::encode::Error),
-    RPMSerdeDecodeError(rmp_serde::decode::Error),
-    JSONSerdeError(serde_json::error::Error),
-}
-
-impl From<std::io::Error> for SignersListError {
-    fn from(value: std::io::Error) -> Self {
-        Self::IOError(value)
+#[cfg(feature = "signers-list")]
+mod signers_list_error {
+    use std::fmt::Display;
+    pub type SignersListResult<T> = Result<T, SignersListError>;
+    
+    #[derive(Debug)]
+    pub enum SignersListError {
+        DirectoryDoesNotExit,
+        ItIsNotAnDirectory,
+        SignerDoesNotExist,
+        SignerIsNotValid,
+        MoreThanOneSignerHasSameKeyFile,
+        SignerAlreadyExist,
+        IOError(std::io::Error),
+        JSONSerdeError(serde_json::error::Error),
     }
-}
-
-impl From<rmp_serde::encode::Error> for SignersListError {
-    fn from(value: rmp_serde::encode::Error) -> Self {
-        Self::RPMSerdeEncodeError(value)
+    
+    impl From<std::io::Error> for SignersListError {
+        fn from(value: std::io::Error) -> Self {
+            Self::IOError(value)
+        }
     }
-}
-
-impl From<rmp_serde::decode::Error> for SignersListError {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::RPMSerdeDecodeError(value)
+    
+    impl From<serde_json::error::Error> for SignersListError {
+        fn from(value: serde_json::error::Error) -> Self {
+            Self::JSONSerdeError(value)
+        }
     }
-}
-
-impl From<serde_json::error::Error> for SignersListError {
-    fn from(value: serde_json::error::Error) -> Self {
-        Self::JSONSerdeError(value)
+    
+    impl Display for SignersListError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", match self {
+                SignersListError::DirectoryDoesNotExit => "DirectoryDoesNotExit".to_owned(),
+                SignersListError::ItIsNotAnDirectory => "ItIsNotAnDirectory".to_owned(),
+                SignersListError::SignerDoesNotExist => "SignerDoesNotExist".to_owned(),
+                SignersListError::SignerIsNotValid => "SignerIsNotValid".to_owned(),
+                SignersListError::MoreThanOneSignerHasSameKeyFile => "MoreThanOneSignerHasSameKeyFile".to_owned(),
+                SignersListError::SignerAlreadyExist => "SignerAlreadyExist".to_owned(),
+                SignersListError::IOError(err) => err.to_string(),
+                SignersListError::JSONSerdeError(err) => err.to_string(),
+            })
+        }
     }
+    
+    impl std::error::Error for SignersListError { }
 }
 
-impl Display for SignersListError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            SignersListError::DirectoryDoesNotExit => "DirectoryDoesNotExit".to_owned(),
-            SignersListError::ItIsNotAnDirectory => "ItIsNotAnDirectory".to_owned(),
-            SignersListError::SignerDoesNotExist => "SignerDoesNotExist".to_owned(),
-            SignersListError::SignerIsNotValid => "SignerIsNotValid".to_owned(),
-            SignersListError::MoreThanOneSignerHasSameKeyFile => "MoreThanOneSignerHasSameKeyFile".to_owned(),
-            SignersListError::SignerAlreadyExist => "SignerAlreadyExist".to_owned(),
-            SignersListError::IOError(err) => err.to_string(),
-            SignersListError::RPMSerdeEncodeError(err) => err.to_string(),
-            SignersListError::RPMSerdeDecodeError(err) => err.to_string(),
-            SignersListError::JSONSerdeError(err) => err.to_string(),
-        })
-    }
-}
-
-impl std::error::Error for SignersListError { }
+#[cfg(feature = "signers-list")]
+pub use signers_list_error::*;
 
 pub type EncryptedFileResult<T> = Result<T, EncryptedFileError>;
 

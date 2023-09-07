@@ -1,3 +1,5 @@
+extern crate serde_json;
+extern crate uuid;
 use std::{collections::{HashMap, HashSet}, path::Path, fs::{File, remove_file}, io::{Write, Read}};
 
 use rsa::RsaPublicKey;
