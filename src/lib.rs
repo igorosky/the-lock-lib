@@ -1,6 +1,6 @@
 #[cfg(any(feature = "serde", feature = "signers-list"))]
 extern crate serde;
-extern crate rsa;
+pub extern crate rsa;
 extern crate chacha20poly1305;
 extern crate sha2;
 extern crate rand;
