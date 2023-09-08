@@ -11,12 +11,14 @@ zip = { version = "0.6.6", default-features = false }
 chacha20poly1305 = { version = "0.10.1", features = ["std", "stream"], default-features = false }
 sha2 = "0.10.7"
 rand = "0.8.5"
+trie-rs = "0.1.1"
 serde = { version = "1.0.188", features = ["derive"], optional = true }
 serde_json = { version = "1.0.105", optional = true }
 uuid = { version = "1.4.1", features = ["v4"], optional = true }
 
 [dev-dependencies]
 tempdir = "0.3.7"
+rand = { version = "0.8.5", features = ["small_rng"] }
 
 [features]
 default = ["deflate", "time"]
@@ -26,3 +28,6 @@ serde = ["dep:serde", "rsa/serde"]
 signers-list = ["serde", "dep:serde_json", "dep:uuid"]
 time = ["zip/time"]
 zstd = ["zip/zstd"]
+
+[profile.test]
+opt-level = 3

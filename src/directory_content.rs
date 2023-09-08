@@ -136,6 +136,17 @@ impl DirectoryContent {
         (path.get(..q).unwrap(), path.get(p..).unwrap())
     }
 
+    pub fn get_path_as_vec(path: &str) -> Vec<&str> {
+        let mut ans = Vec::new();
+        let (mut next, mut rest) = Self::get_next_and_rest(path);
+        ans.push(next);
+        while !rest.is_empty() {
+            (next, rest) = Self::get_next_and_rest(rest);
+            ans.push(next);
+        }
+        ans
+    }
+
     pub fn get_dir(&self, path: &str) -> Option<&DirectoryContent> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
@@ -193,6 +204,8 @@ impl DirectoryContent {
         }
     }
 
+    // Dead code
+    #[cfg(test)]
     pub(crate) fn add_file(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         let (next_part, rest) = Self::get_next_and_rest(path);
         if next_part.is_empty() {
@@ -206,7 +219,7 @@ impl DirectoryContent {
             (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
             (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentError::FileAlreadyExists),
-            (false, _, false) => Err(ContentError::DirectoryDoesNotExit),
+            (false, _, false) => Err(ContentError::DirectoryDoesNotExist),
         }
     }
 
@@ -220,7 +233,7 @@ impl DirectoryContent {
                 self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
                 Ok(self.files.get_mut(next_part).unwrap())
             },
-            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
+            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file_with_path(rest),
             (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentError::FileAlreadyExists),
             (false, _, false) => self.add_directory(next_part).unwrap().add_file_with_path(rest),

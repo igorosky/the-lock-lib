@@ -7,8 +7,7 @@ extern crate rand;
 
 use std::borrow::BorrowMut;
 use std::fs::File;
-use std::io::Read;
-use std::io::prelude::Write;
+use std::io::{Read, Write, Seek};
 use std::path::Path;
 
 use asymetric_key::{PublicKey, PrivateKey};
@@ -16,6 +15,7 @@ use rsa::{RsaPublicKey, RsaPrivateKey, Pss};
 use sha2::Sha512;
 #[cfg(feature = "signers-list")]
 use signers_list::SignersList;
+use trie_rs::TrieBuilder;
 use zip::{ZipArchive, ZipWriter};
 use rand::rngs::OsRng;
 
@@ -32,7 +32,8 @@ use directory_content::DirectoryContent;
 use symmertic_cipher::{SymmetricCipher, SymmetricKey};
 use error::{EncryptedFileError, EncryptedFileResult};
 
-const FILE_CONETENT_NAME: &str = "file";
+const FILE_CONETENT_DIR: &str = "content";
+const FILE_CONTENT_NAME: &str = "file";
 const FILE_KEY_NAME: &str = "key";
 const FILE_SIGNATURE_NAME: &str = "signature";
 const FILE_DIGEST_NAME: &str = "digest";
@@ -115,8 +116,12 @@ impl EncryptedFile {
     pub fn get_directory_content_hard(&mut self) -> EncryptedFileResult<&DirectoryContent> {
         let archive = ZipArchive::new(&self.file)?;
         let mut ans = DirectoryContent::new();
-        for name in archive.file_names() {
-            if let Some(rest) = Self::without_suffix(name, FILE_CONETENT_NAME) {
+        for mut name in archive.file_names() {
+            if name.len() < FILE_CONETENT_DIR.len() {
+                continue;
+            }
+            name = name.get(FILE_CONETENT_DIR.len()..).unwrap();
+            if let Some(rest) = Self::without_suffix(name, FILE_CONTENT_NAME) {
                 ans.get_or_create_file_mut(rest)?.content(true);
             }
             else if let Some(rest) = Self::without_suffix(name, FILE_KEY_NAME) {
@@ -135,7 +140,7 @@ impl EncryptedFile {
 
     fn sign_file(&self, dst_path: &str, file_hash: &[u8; 64], private_key: &RsaPrivateKey) -> EncryptedFileResult<()> {
         let mut zip = ZipWriter::new_append(&self.file)?;
-        zip.start_file(format!("content/{}/{}", dst_path, FILE_SIGNATURE_NAME), self.file_options)?;
+        zip.start_file(format!("{FILE_CONETENT_DIR}/{dst_path}/{FILE_SIGNATURE_NAME}"), self.file_options)?;
         zip.write(&private_key.sign_with_rng(&mut OsRng, Pss::new::<Sha512>(), file_hash)?)?;
         Ok(())
     }
@@ -144,16 +149,16 @@ impl EncryptedFile {
         let mut zip = ZipArchive::new(&self.file)?;
         let mut buf = Vec::new();
         // todo!("Check size");
-        zip.by_name(&format!("content/{}/{}", src_path, FILE_SIGNATURE_NAME))?.read_to_end(&mut buf)?;
+        zip.by_name(&format!("{FILE_CONETENT_DIR}/{src_path}/{FILE_SIGNATURE_NAME}"))?.read_to_end(&mut buf)?;
         public_key.verify(Pss::new::<Sha512>(), file_hash, &buf)?;
         Ok(())
     }
 
     fn add_file_digest<I: Read>(&self, src: I, dst_path: &str, public_key: &PublicKey) -> EncryptedFileResult<Box<[u8; 64]>> {
-        let dst = format!("content/{}", dst_path);
+        let dst = format!("{FILE_CONETENT_DIR}/{dst_path}");
         let key = SymmetricKey::new();
         let mut zip = ZipWriter::new_append(&self.file)?;
-        zip.start_file(format!("{}/{}", dst, FILE_CONETENT_NAME), self.file_options)?;
+        zip.start_file(format!("{}/{}", dst, FILE_CONTENT_NAME), self.file_options)?;
         let dig = self.symmetric_cipher.encrypt_file(&key, self.associated_data(), src, &mut zip)?;
         let key_bytes: [u8; 51] = key.into();
         let encrypted_key = public_key.encrypt_symmetric_key(&key_bytes)?;
@@ -167,15 +172,15 @@ impl EncryptedFile {
     fn decrypt_file_digest<O: Write>(&self, src: &str, mut dst: O, private_key: &PrivateKey) -> EncryptedFileResult<(Box<[u8; 64]>, bool)> {
         let mut zip = ZipArchive::new(&self.file)?;
         let key = {
-            let mut zipfile = zip.by_name(format!("content/{}/{}", src, FILE_KEY_NAME).as_str())?;
+            let mut zipfile = zip.by_name(format!("{FILE_CONETENT_DIR}/{src}/{FILE_KEY_NAME}").as_str())?;
             let mut buf: Vec<u8> = Vec::new();
             // todo!("Check size");
             zipfile.read_to_end(&mut buf)?;
             SymmetricKey::try_from(private_key.decrypt_symmetric_key(&buf)?)?
         };
-        let ans = self.symmetric_cipher.decrypt_file(&key, self.associated_data(), &mut zip.by_name(format!("content/{}/{}", src, FILE_CONETENT_NAME).as_str())?, &mut dst)?;
+        let ans = self.symmetric_cipher.decrypt_file(&key, self.associated_data(), &mut zip.by_name(format!("{FILE_CONETENT_DIR}/{src}/{FILE_CONTENT_NAME}").as_str())?, &mut dst)?;
         let is_digest_correct = *ans == {
-            let mut zipfile = zip.by_name(format!("content/{}/{}", src, FILE_DIGEST_NAME).as_str())?;
+            let mut zipfile = zip.by_name(format!("{FILE_CONETENT_DIR}/{src}/{FILE_DIGEST_NAME}").as_str())?;
             let mut buf = [0; 64];
             zipfile.read_exact(&mut buf)?;
             buf
@@ -191,7 +196,7 @@ impl EncryptedFile {
             return Err(EncryptedFileError::FileAlreadyExists.into());
         }
         self.add_file_digest(src, dst_path, public_key)?;
-        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true);
+        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true).digest(true);
         Ok(())
     }
     
@@ -200,7 +205,7 @@ impl EncryptedFile {
             return Err(EncryptedFileError::FileAlreadyExists.into());
         }
         self.sign_file(dst_path, self.add_file_digest(src, dst_path, public_key)?.as_ref(), private_key)?;
-        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true).signed(true);
+        self.directory_content.as_mut().unwrap().borrow_mut().add_file_with_path(dst_path)?.content(true).key(true).signed(true).digest(true);
         Ok(())
     }
 
@@ -318,6 +323,18 @@ impl EncryptedFile {
         Ok(ans)
     }
 
+    fn str_path_last_element(path: &str) -> &str {
+        let mut p;
+        {
+            let path = path.as_bytes();
+            p = path.len();
+            while p > 0 && path[p - 1] != '/' as u8 && path[p - 1] != '\\' as u8 {
+                p -= 1;
+            }
+        }
+        path.get(p..).unwrap()
+    }
+
     pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<bool>)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
@@ -328,16 +345,21 @@ impl EncryptedFile {
         if !dst.as_ref().is_dir() {
             return Err(EncryptedFileError::ThisIsNotADirectory.into());
         }
-        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let dst: Box<Path> = Box::from(dst.as_ref().join(Self::str_path_last_element(src)).as_path());
+        std::fs::create_dir_all(dst.as_ref())?;
         let mut ans = Vec::new();
-        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
-            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+        let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
+        for (name, _) in directory_content.get_files_iter() {
+            let output_file = File::create(dst.join(name));
             if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file(&format!("{}/{}", src, name), output_file, private_key)));
+                ans.push((name.to_owned(), self.decrypt_file(&format!("{src}/{name}"), output_file, private_key)));
             }
             else {
                 ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
             }
+        }
+        for (name, _) in directory_content.get_dir_iter() {
+            ans.append(&mut self.decrypt_directory(&format!("{}/{}", src, name), dst.as_ref(), private_key)?);
         }
         Ok(ans)
     }
@@ -352,16 +374,20 @@ impl EncryptedFile {
         if !dst.as_ref().is_dir() {
             return Err(EncryptedFileError::ThisIsNotADirectory.into());
         }
-        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let dst: Box<Path> = Box::from(dst.as_ref().join(Self::str_path_last_element(src)).as_path());
         let mut ans = Vec::new();
+        let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
         for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
-            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+            let output_file = File::create(dst.join(name));
             if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file_and_verify(&format!("{}/{}", src, name), output_file, private_key, public_key)));
+                ans.push((name.to_owned(), self.decrypt_file_and_verify(&format!("{src}/{name}"), output_file, private_key, public_key)));
             }
             else {
                 ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
             }
+        }
+        for (name, _) in directory_content.get_dir_iter() {
+            ans.append(&mut self.decrypt_directory_and_verify(&format!("{}/{}", src, name), dst.as_ref(), private_key, public_key)?);
         }
         Ok(ans)
     }
@@ -377,19 +403,24 @@ impl EncryptedFile {
         if !dst.as_ref().is_dir() {
             return Err(EncryptedFileError::ThisIsNotADirectory.into());
         }
-        let _ = std::fs::create_dir_all(dst.as_ref().join(src));
+        let dst: Box<Path> = Box::from(dst.as_ref().join(Self::str_path_last_element(src)).as_path());
         let mut ans = Vec::new();
+        let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
         for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
-            let output_file = File::create(dst.as_ref().join(dst.as_ref()));
+            let output_file = File::create(dst.join(name));
             if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file_and_find_signer(&format!("{}/{}", src, name), output_file, private_key, signers_list)));
+                ans.push((name.to_owned(), self.decrypt_file_and_find_signer(&format!("{src}/{name}"), output_file, private_key, signers_list)));
             }
             else {
                 ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
             }
         }
+        for (name, _) in directory_content.get_dir_iter() {
+            ans.append(&mut self.decrypt_directory_and_find_signer(&format!("{}/{}", src, name), dst.as_ref(), private_key, signers_list)?);
+        }
         Ok(ans)
     }
+
     // Impossible with current ways
     // pub fn add_empty_directory(&mut self, path: &str) -> SResult<()> {
     //     self.get_directory_content()?;
@@ -398,7 +429,7 @@ impl EncryptedFile {
     //         Err(err.into())
     //     }
     //     else {
-    //         if let Err(err) = ZipWriter::new_append(&self.file)?.add_directory(format!("content/{}", path), self.file_options) {
+    //         if let Err(err) = ZipWriter::new_append(&self.file)?.add_directory(format!("{FILE_CONETENT_DIR}/{path}"), self.file_options) {
     //             Err(err.into())
     //         }
     //         else {
@@ -406,6 +437,24 @@ impl EncryptedFile {
     //         }
     //     }
     // }
+
+    pub fn delete_path<O: Write + Seek>(&self, output: O, to_delete: &Vec<String>) -> EncryptedFileResult<()> {
+        let mut output = ZipWriter::new(output);
+        let mut zip = ZipArchive::new(&self.file)?;
+        let trie = {
+            let mut trie_builder = TrieBuilder::new();
+            for path in to_delete {
+                trie_builder.push(DirectoryContent::get_path_as_vec(path));
+            }
+            trie_builder.build()
+        };
+        for file_name in zip.file_names().map(|s| s.to_owned()).collect::<Vec<String>>() {
+            if trie.common_prefix_search(DirectoryContent::get_path_as_vec(&file_name).into_iter().skip(1).rev().skip(1).rev().collect::<Vec<&str>>()).is_empty() {
+                output.raw_copy_file(zip.by_name(&file_name)?)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

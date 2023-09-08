@@ -17,7 +17,7 @@ pub struct SignersList {
 impl SignersList {
     pub fn new<P: AsRef<Path>>(path: P) -> SignersListResult<Self> {
         if !path.as_ref().exists() {
-            return Err(SignersListError::DirectoryDoesNotExit.into());
+            return Err(SignersListError::DirectoryDoesNotExist.into());
         }
         else if path.as_ref().is_file() {
             return Err(SignersListError::ItIsNotAnDirectory.into());

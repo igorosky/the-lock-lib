@@ -3,8 +3,7 @@ extern crate tempdir;
 mod test_utils {
     use std::{path::Path, fmt::Display, fs::{File, remove_file}, io::{Read, Write}};
 
-    use rand::RngCore;
-    use rsa::rand_core::OsRng;
+    use rand::{RngCore, rngs::SmallRng, SeedableRng};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct TestUtilError(String);
@@ -12,6 +11,12 @@ mod test_utils {
     impl Display for TestUtilError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self)
+        }
+    }
+
+    impl From<std::io::Error> for TestUtilError {
+        fn from(value: std::io::Error) -> Self {
+            Self(format!("std::io::Error ({value})"))
         }
     }
 
@@ -35,8 +40,8 @@ mod test_utils {
             }
             else {
                 let mut content = vec![0;32];
-                OsRng.fill_bytes(&mut content);
-                File::create(path.as_ref()).unwrap().write(&content).unwrap();
+                SmallRng::from_entropy().fill_bytes(&mut content);
+                File::create(path.as_ref())?.write(&content)?;
                 Ok(Self { path: Box::from(path.as_ref()), content })
             }
         }
@@ -47,7 +52,7 @@ mod test_utils {
 
         pub(super) fn validate_with<P: AsRef<Path>>(&self, path: P) -> Result<(), TestUtilError> {
             let mut buf = Vec::new();
-            File::open(path.as_ref()).unwrap().read_to_end(&mut buf).unwrap();
+            File::open(path.as_ref())?.read_to_end(&mut buf)?;
             match buf == self.content {
                 true => Ok(()),
                 false => Err(TestUtilError::new("File is not valid")),
@@ -76,7 +81,7 @@ mod lib_tests {
 
     use super::test_utils::MockFile;
 
-    use std::fs::create_dir;
+    use std::fs::{create_dir, remove_dir_all};
 
     use crate::asymetric_key::*;
 
@@ -169,6 +174,17 @@ mod lib_tests {
         let key = PrivateKey::new(KEY_SIZE).unwrap();
         assert!(ef.add_directory(dir_to_encrypt, "folder", &key.into()).is_ok());
     }
+
+    // DeadCode
+    // fn list_content(content: &DirectoryContent, prefix: String) {
+    //     for (file, _) in content.get_files_iter() {
+    //         println!("{prefix}file: {file}");
+    //     }
+    //     for (dir, d) in content.get_dir_iter() {
+    //         println!("{prefix}dir: {dir}");
+    //         list_content(d, format!("{prefix}    "));
+    //     }
+    // }
     
     #[test]
     fn encrypt_folder_and_decrypt() {
@@ -183,7 +199,19 @@ mod lib_tests {
         let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        assert!(ef.add_directory(dir_to_encrypt, "folder", &(&key).into()).is_ok());
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+            if let Err(err) = result {
+                println!("{err} for {:?}", name);
+                panic!("abc");
+            }
+        }
+        let content = ef.get_directory_content().unwrap();
+        assert!(content.get_file("folder/dir/file1").is_some());
+        assert!(content.get_file("folder/dir/file2").is_some());
+        assert!(content.get_file("folder/dir/file3").is_some());
+        assert!(content.get_file("folder/dir/sdir/file1").is_some());
+        assert!(content.get_file("folder/dir/sdir/file2").is_some());
+        remove_dir_all(dir_to_encrypt).unwrap();
         for result in ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap() {
             assert!(result.1.unwrap());
         }
@@ -208,6 +236,42 @@ mod lib_tests {
     //     println!("{:?}", ef.get_directory_content());
     //     assert!(ef.get_directory_content().unwrap().get_dir("nice").is_some());
     // }
+
+    #[test]
+    fn delete() {
+        let tmp_dir = TempDir::new("the-lock-test").unwrap();
+        let dir_to_encrypt = tmp_dir.path().join("dir");
+        create_dir(dir_to_encrypt.clone()).unwrap();
+        create_dir(dir_to_encrypt.join("sdir")).unwrap();
+        let mock_file1 = MockFile::new(dir_to_encrypt.join("file1")).unwrap();
+        let mock_file2 = MockFile::new(dir_to_encrypt.join("file2")).unwrap();
+        let mock_file3 = MockFile::new(dir_to_encrypt.join("file3")).unwrap();
+        let _mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
+        let _mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
+        let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+            if let Err(err) = result {
+                println!("{err} for {:?}", name);
+                panic!("abc");
+            }
+        }
+        remove_dir_all(dir_to_encrypt).unwrap();
+        ef.delete_path(File::create(tmp_dir.path().join("file2")).unwrap(), &vec!["folder/dir/sdir".to_owned()]).unwrap();
+        ef = EncryptedFile::new(tmp_dir.path().join("file2")).unwrap();
+        let content = ef.get_directory_content().unwrap();
+        assert!(content.get_file("folder/dir/file1").is_some());
+        assert!(content.get_file("folder/dir/file2").is_some());
+        assert!(content.get_file("folder/dir/file3").is_some());
+        assert!(content.get_file("folder/dir/sdir/file1").is_none());
+        assert!(content.get_file("folder/dir/sdir/file2").is_none());
+        for result in ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap() {
+            assert!(result.1.unwrap());
+        }
+        mock_file1.validate().unwrap();
+        mock_file2.validate().unwrap();
+        mock_file3.validate().unwrap();
+    }
 }
 
 mod directory_content_tests {

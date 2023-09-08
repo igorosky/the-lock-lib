@@ -56,7 +56,7 @@ pub enum ContentError {
     FileAlreadyExists,
     DirectoryAlreadyExists,
     FileDoesNotExist,
-    DirectoryDoesNotExit,
+    DirectoryDoesNotExist,
     NameCanNotBeEmpty,
 }
 
@@ -66,7 +66,7 @@ impl Display for ContentError {
             ContentError::FileAlreadyExists => "FileAlreadyExists",
             ContentError::DirectoryAlreadyExists => "DirectoryAlreadyExists",
             ContentError::FileDoesNotExist => "FileDoesNotExist",
-            ContentError::DirectoryDoesNotExit => "DirectoryDoesNotExit",
+            ContentError::DirectoryDoesNotExist => "DirectoryDoesNotExist(Content)",
             ContentError::NameCanNotBeEmpty => "NameCanNotBeEmpty",
         })
     }
@@ -92,7 +92,7 @@ mod signers_list_error {
     
     #[derive(Debug)]
     pub enum SignersListError {
-        DirectoryDoesNotExit,
+        DirectoryDoesNotExist,
         ItIsNotAnDirectory,
         SignerDoesNotExist,
         SignerIsNotValid,
@@ -117,7 +117,7 @@ mod signers_list_error {
     impl Display for SignersListError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", match self {
-                SignersListError::DirectoryDoesNotExit => "DirectoryDoesNotExit".to_owned(),
+                SignersListError::DirectoryDoesNotExist => "DirectoryDoesNotExist(SignersList)".to_owned(),
                 SignersListError::ItIsNotAnDirectory => "ItIsNotAnDirectory".to_owned(),
                 SignersListError::SignerDoesNotExist => "SignerDoesNotExist".to_owned(),
                 SignersListError::SignerIsNotValid => "SignerIsNotValid".to_owned(),
@@ -203,7 +203,7 @@ impl Display for EncryptedFileError {
             EncryptedFileError::FileKeyIsMissing => "FileKeyIsMissing".to_owned(),
             EncryptedFileError::FileContentIsMissing => "FileContentIsMissing".to_owned(),
             EncryptedFileError::InvalidPath => "InvalidPath".to_owned(),
-            EncryptedFileError::DirectoryDoesNotExist => "DirectoryDoesNotExist".to_owned(),
+            EncryptedFileError::DirectoryDoesNotExist => "DirectoryDoesNotExist(EncryptedFile)".to_owned(),
             EncryptedFileError::ThisIsNotADirectory => "ThisIsNotADirectory".to_owned(),
             EncryptedFileError::ContentIsUnknown => "ContentIsUnknown".to_owned(),
             EncryptedFileError::ZipError(err) => err.to_string(),
