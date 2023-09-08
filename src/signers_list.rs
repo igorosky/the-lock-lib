@@ -89,6 +89,22 @@ impl SignersList {
         self.signers.insert(new_name.to_owned(), v);
         Ok(())
     }
+
+    pub fn len(&self) -> usize {
+        self.signers.len()
+    }
+
+    pub fn get_signers_key(&self, name: &str) -> SignersListResult<RsaPublicKey> {
+        if let Some(uuid) = self.signers.get(name) {
+            let path = self.path.join(uuid);
+            let mut buf = String::new();
+            File::open(path)?.read_to_string(&mut buf)?;
+            Ok(serde_json::from_str(&buf)?)
+        }
+        else {
+            Err(SignersListError::SignerDoesNotExist)
+        }
+    }
 }
 
 pub struct SignersListIterator<'a> {
