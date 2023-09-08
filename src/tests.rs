@@ -128,7 +128,9 @@ mod lib_tests {
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Rafał", &key.get_rsa_public_key()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        assert_eq!(Some("Rafał".to_owned()), ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap().1);
+        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
+        assert!(digest_correctness);
+        assert_eq!(Some("Rafał".to_owned()), signer_result);
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -145,7 +147,9 @@ mod lib_tests {
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
         signers_list.add_signer("Rafał", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        assert_eq!(None, ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap().1);
+        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
+        assert!(digest_correctness);
+        assert_eq!(None, signer_result);
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -180,9 +184,13 @@ mod lib_tests {
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
         assert!(ef.add_directory(dir_to_encrypt, "folder", &(&key).into()).is_ok());
-        ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap();
+        for result in ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap() {
+            assert!(result.1.unwrap());
+        }
         create_dir(tmp_dir.path().join("output")).unwrap();
-        ef.decrypt_directory("folder/dir", tmp_dir.path().join("output"), &key).unwrap();
+        for result in ef.decrypt_directory("folder/dir", tmp_dir.path().join("output"), &key).unwrap() {
+            assert!(result.1.unwrap());
+        }
         mock_file1.validate().unwrap();
         mock_file2.validate().unwrap();
         mock_file3.validate().unwrap();
