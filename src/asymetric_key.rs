@@ -3,11 +3,15 @@ use rsa::{RsaPublicKey, RsaPrivateKey, Oaep};
 use rand::{rngs::OsRng, Rng};
 use crate::error::{AsymetricKeyResult, AsymetricKeyError};
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 pub const MIN_RSA_KEY_SIZE: usize = 2048;
 const SYMMETRIC_KEY_SIZE: usize = 32;
 const SYMMETRIC_NONE_SIZE: usize = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PrivateKey {
     rsa_key: RsaPrivateKey,
     chacha_key: [u8; SYMMETRIC_KEY_SIZE],
@@ -63,6 +67,7 @@ impl PrivateKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PublicKey {
     rsa_key: RsaPublicKey,
     chacha_key: [u8; SYMMETRIC_KEY_SIZE],
