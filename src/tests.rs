@@ -116,7 +116,9 @@ mod lib_tests {
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
         ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
-        assert!(ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap());
+        let (dig, sig) = ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap();
+        assert!(dig);
+        assert!(sig.is_ok());
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }

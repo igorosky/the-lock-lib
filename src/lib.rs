@@ -51,6 +51,11 @@ pub struct EncryptedFile {
     file_options: FileOptions,
 }
 
+type DecyptFileResult = EncryptedFileResult<bool>;
+type DecryptFileAndVerifyResult = EncryptedFileResult<(bool, EncryptedFileResult<()>)>;
+#[cfg(feature = "signers-list")]
+type DecryptFileAndFindSignerResult = EncryptedFileResult<(bool, Option<String>)>;
+
 impl EncryptedFile {
     pub fn new<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let path = path.as_ref();
@@ -209,7 +214,7 @@ impl EncryptedFile {
         Ok(())
     }
 
-    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey) -> EncryptedFileResult<bool> {
+    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey) -> DecyptFileResult {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -225,7 +230,8 @@ impl EncryptedFile {
         }
     }
 
-    pub fn decrypt_file_and_verify<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey, public_key: &RsaPublicKey) -> EncryptedFileResult<bool> {
+
+    pub fn decrypt_file_and_verify<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey, public_key: &RsaPublicKey) -> DecryptFileAndVerifyResult {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -241,13 +247,13 @@ impl EncryptedFile {
         }
         else {
             let (dig, ans) = self.decrypt_file_digest(src, dst, private_key)?;
-            self.verify_signature(src, dig.as_ref(), public_key)?;
-            Ok(ans)
+            let signature_verification = self.verify_signature(src, dig.as_ref(), public_key);
+            Ok((ans, signature_verification))
         }
     }
 
     #[cfg(feature = "signers-list")]
-    pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey, signers_list: &SignersList) -> EncryptedFileResult<(bool, Option<String>)> {
+    pub fn decrypt_file_and_find_signer<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey, signers_list: &SignersList) -> DecryptFileAndFindSignerResult {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -335,7 +341,7 @@ impl EncryptedFile {
         path.get(p..).unwrap()
     }
 
-    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<bool>)>> {
+    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, DecyptFileResult)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -364,7 +370,7 @@ impl EncryptedFile {
         Ok(ans)
     }
 
-    pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, public_key: &RsaPublicKey) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<bool>)>> {
+    pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, public_key: &RsaPublicKey) -> EncryptedFileResult<Vec<(String, DecryptFileAndVerifyResult)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -393,7 +399,7 @@ impl EncryptedFile {
     }
 
     #[cfg(feature = "signers-list")]
-    pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, signers_list: &SignersList) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<(bool, Option<String>)>)>> {
+    pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, signers_list: &SignersList) -> EncryptedFileResult<Vec<(String, DecryptFileAndFindSignerResult)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
