@@ -41,6 +41,7 @@ const FILE_DIGEST_NAME: &str = "digest";
 /**
  * TODO
  * checking file sizes
+ * Update add_file_digest when cheking stream size will be stable
  */
 
 pub struct EncryptedFile {
@@ -51,10 +52,10 @@ pub struct EncryptedFile {
     file_options: FileOptions,
 }
 
-type DecyptFileResult = EncryptedFileResult<bool>;
-type DecryptFileAndVerifyResult = EncryptedFileResult<(bool, EncryptedFileResult<()>)>;
+pub type DecryptFileResult = EncryptedFileResult<bool>;
+pub type DecryptFileAndVerifyResult = EncryptedFileResult<(bool, EncryptedFileResult<()>)>;
 #[cfg(feature = "signers-list")]
-type DecryptFileAndFindSignerResult = EncryptedFileResult<(bool, Option<String>)>;
+pub type DecryptFileAndFindSignerResult = EncryptedFileResult<(bool, Option<String>)>;
 
 impl EncryptedFile {
     pub fn new<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
@@ -214,7 +215,7 @@ impl EncryptedFile {
         Ok(())
     }
 
-    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey) -> DecyptFileResult {
+    pub fn decrypt_file<O: Write>(&self, src: &str, dst: O, private_key: &PrivateKey) -> DecryptFileResult {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -287,7 +288,14 @@ impl EncryptedFile {
         for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
             if path.path().is_file() {
                 if path.file_name().to_str().is_some() {
-                    ans.push((Box::from(path.path()), self.add_file(File::open(path.path())?, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key)));
+                    let file = File::open(path.path())?;
+                    ans.push((Box::from(path.path()), match file.metadata() {
+                        Ok(metadata) => {
+                            self.file_options = self.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
+                            self.add_file(file, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key)
+                        }
+                        Err(err) => Err(EncryptedFileError::from(err)),
+                    }));
                 }
             }
             else {
@@ -313,7 +321,14 @@ impl EncryptedFile {
         for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
             if path.path().is_file() {
                 if path.file_name().to_str().is_some() {
-                    ans.push((Box::from(path.path()), self.add_file_and_sign(File::open(path.path())?, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key, private_key)));
+                    let file = File::open(path.path())?;
+                    ans.push((Box::from(path.path()), match file.metadata() {
+                        Ok(metadata) => {
+                            self.file_options = self.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
+                            self.add_file_and_sign(file, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key, private_key)
+                        }
+                        Err(err) => Err(EncryptedFileError::from(err)),
+                    }));
                 }
             }
             else {
@@ -341,7 +356,7 @@ impl EncryptedFile {
         path.get(p..).unwrap()
     }
 
-    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, DecyptFileResult)>> {
+    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, DecryptFileResult)>> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
