@@ -19,7 +19,7 @@ use trie_rs::TrieBuilder;
 use zip::{ZipArchive, ZipWriter};
 use rand::rngs::OsRng;
 
-pub use zip::write::FileOptions;
+pub use zip::{write::FileOptions, CompressionMethod, DateTime};
 
 mod symmertic_cipher;
 pub mod directory_content;
