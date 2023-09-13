@@ -274,6 +274,50 @@ mod lib_tests {
         mock_file2.validate().unwrap();
         mock_file3.validate().unwrap();
     }
+
+    #[test]
+    fn callback() {
+        let tmp_dir = TempDir::new("the-lock-test").unwrap();
+        let dir_to_encrypt = tmp_dir.path().join("dir");
+        create_dir(dir_to_encrypt.clone()).unwrap();
+        create_dir(dir_to_encrypt.join("sdir")).unwrap();
+        let mock_file1 = MockFile::new(dir_to_encrypt.join("file1")).unwrap();
+        let mock_file2 = MockFile::new(dir_to_encrypt.join("file2")).unwrap();
+        let mock_file3 = MockFile::new(dir_to_encrypt.join("file3")).unwrap();
+        let mock_file4 = MockFile::new(dir_to_encrypt.join("sdir").join("file1")).unwrap();
+        let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
+        let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
+        let key = PrivateKey::new(KEY_SIZE).unwrap();
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+            if let Err(err) = result {
+                println!("{err} for {:?}", name);
+                panic!("abc");
+            }
+        }
+        let content = ef.get_directory_content().unwrap();
+        assert!(content.get_file("folder/dir/file1").is_some());
+        assert!(content.get_file("folder/dir/file2").is_some());
+        assert!(content.get_file("folder/dir/file3").is_some());
+        assert!(content.get_file("folder/dir/sdir/file1").is_some());
+        assert!(content.get_file("folder/dir/sdir/file2").is_some());
+        remove_dir_all(dir_to_encrypt).unwrap();
+        let mut count = 0;
+        for result in ef.decrypt_directory_callback("folder/dir", tmp_dir.path(), &key, |_, _, _| count += 1).unwrap() {
+            assert!(result.1.unwrap());
+        }
+        assert_eq!(count, 5);
+        count = 0;
+        create_dir(tmp_dir.path().join("output")).unwrap();
+        for result in ef.decrypt_directory_callback("folder/dir", tmp_dir.path().join("output"), &key, |_, _, _| count += 1).unwrap() {
+            assert!(result.1.unwrap());
+        }
+        assert_eq!(count, 5);
+        mock_file1.validate().unwrap();
+        mock_file2.validate().unwrap();
+        mock_file3.validate().unwrap();
+        mock_file4.validate().unwrap();
+        mock_file5.validate().unwrap();
+    }
 }
 
 mod directory_content_tests {

@@ -279,69 +279,69 @@ impl EncryptedFile {
         }
     }
 
-    pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &PublicKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
-        if !src.as_ref().is_dir() {
-            return Err(EncryptedFileError::ThisIsNotADirectory.into());
-        }
-        let dst = format!("{}/{}", dst, src.as_ref().file_name().ok_or(EncryptedFileError::InvalidPath)?.to_str().ok_or(EncryptedFileError::InvalidPath)?);
-        let mut ans = Vec::new();
-        for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
-            if path.path().is_file() {
-                if path.file_name().to_str().is_some() {
-                    let file = File::open(path.path())?;
-                    ans.push((Box::from(path.path()), match file.metadata() {
-                        Ok(metadata) => {
-                            self.file_options = self.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
-                            self.add_file(file, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key)
-                        }
-                        Err(err) => Err(EncryptedFileError::from(err)),
-                    }));
-                }
+    fn add_dir<P, D, R>(&mut self, src: P, dst: &str, encryptor: &mut D) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<R>)>> 
+        where P: AsRef<Path>,
+        D: FnMut(&mut Self, &Path, &str) -> EncryptedFileResult<R> {
+            if !src.as_ref().is_dir() {
+                return Err(EncryptedFileError::ThisIsNotADirectory.into());
             }
-            else {
-                let res = self.add_directory(path.path(), &dst, public_key);
-                if let Ok(mut res) = res {
-                    ans.append(&mut res);
+            let dst = format!("{}/{}", dst, src.as_ref().file_name().ok_or(EncryptedFileError::InvalidPath)?.to_str().ok_or(EncryptedFileError::InvalidPath)?);
+            let mut ans = Vec::new();
+            for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
+                if path.path().is_file() {
+                    ans.push((Box::from(path.path()), encryptor(self, path.path().as_path(), &format!("{}/{}", dst, path.file_name().to_str().unwrap()))));
                 }
                 else {
-                    ans.push((Box::from(path.path()), Err(res.unwrap_err())));
+                    match self.add_dir(path.path(), &dst, encryptor) {
+                        Ok(mut res) => ans.append(&mut res),
+                        Err(err) => ans.push((Box::from(path.path()), Err(err))),
+                    }
                 }
             }
-        }
-        Ok(ans)
+            Ok(ans)
+    }
+
+    pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &PublicKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
+        self.add_directory_callback(src, dst, public_key, |_, _, _| {})
+    }
+
+    pub fn add_directory_callback<P, C>(&mut self, src: P, dst: &str, public_key: &PublicKey, mut callback: C) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>>
+        where P: AsRef<Path>, 
+        C: FnMut(&Path, &str, &EncryptedFileResult<()>) {
+        self.add_dir(src, dst, &mut |s, src, dst_path| {
+            let file = File::open(src)?;
+            let ans = match file.metadata() {
+                Ok(metadata) => {
+                    s.file_options = s.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
+                    s.add_file(file, dst_path, public_key)
+                }
+                Err(err) => Err(EncryptedFileError::from(err)),
+            };
+            callback(src, dst_path, &ans);
+            ans
+        })
+    }
+
+    pub fn add_directory_and_sign<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &PublicKey, private_key: &RsaPrivateKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
+        self.add_directory_and_sign_callback(src, dst, public_key, private_key, |_, _, _| {})
     }
 
     // Directory is not signed, but only every file it contains
-    pub fn add_directory_and_sign<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &PublicKey, private_key: &RsaPrivateKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
-        if !src.as_ref().is_dir() {
-            return Err(EncryptedFileError::ThisIsNotADirectory.into());
-        }
-        let dst = format!("{}/{}", dst, src.as_ref().file_name().ok_or(EncryptedFileError::InvalidPath)?.to_str().ok_or(EncryptedFileError::InvalidPath)?);
-        let mut ans = Vec::new();
-        for path in src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
-            if path.path().is_file() {
-                if path.file_name().to_str().is_some() {
-                    let file = File::open(path.path())?;
-                    ans.push((Box::from(path.path()), match file.metadata() {
-                        Ok(metadata) => {
-                            self.file_options = self.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
-                            self.add_file_and_sign(file, &format!("{}/{}", dst, path.file_name().to_str().unwrap()), public_key, private_key)
-                        }
-                        Err(err) => Err(EncryptedFileError::from(err)),
-                    }));
+    pub fn add_directory_and_sign_callback<P, C>(&mut self, src: P, dst: &str, public_key: &PublicKey, private_key: &RsaPrivateKey, mut callback: C) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>>
+        where P: AsRef<Path>, 
+        C: FnMut(&Path, &str, &EncryptedFileResult<()>)  {
+        self.add_dir(src, dst, &mut |s, src, dst_path| {
+            let file = File::open(src)?;
+            let ans = match file.metadata() {
+                Ok(metadata) => {
+                    s.file_options = s.file_options.large_file(metadata.len() >= 4*1024*1024*1024);
+                    s.add_file_and_sign(file, dst_path, public_key, private_key)
                 }
-            }
-            else {
-                let res = self.add_directory_and_sign(path.path(), &dst, public_key, private_key);
-                if let Ok(mut res) = res {
-                    ans.append(&mut res);
-                }
-                else {
-                    ans.push((Box::from(path.path()), Err(res.unwrap_err())));
-                }
-            }
-        }
-        Ok(ans)
+                Err(err) => Err(EncryptedFileError::from(err)),
+            };
+            callback(src, dst_path, &ans);
+            ans
+        })
     }
 
     fn str_path_last_element(path: &str) -> &str {
@@ -356,7 +356,9 @@ impl EncryptedFile {
         path.get(p..).unwrap()
     }
 
-    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, DecryptFileResult)>> {
+    fn decrypt_dir<P, D, R>(&self, src: &str, dst: P, decryptor: &mut D) -> EncryptedFileResult<Vec<(String, EncryptedFileResult<R>)>>
+        where P: AsRef<Path>,
+        D: FnMut(&str, &Path) -> EncryptedFileResult<R> {
         if self.get_directory_content_soft().is_none() {
             return Err(EncryptedFileError::ContentIsUnknown.into());
         }
@@ -371,75 +373,56 @@ impl EncryptedFile {
         let mut ans = Vec::new();
         let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
         for (name, _) in directory_content.get_files_iter() {
-            let output_file = File::create(dst.join(name));
-            if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file(&format!("{src}/{name}"), output_file, private_key)));
-            }
-            else {
-                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
-            }
+            ans.push((name.to_owned(), decryptor(&format!("{src}/{name}"), dst.join(name).as_path())));
         }
         for (name, _) in directory_content.get_dir_iter() {
-            ans.append(&mut self.decrypt_directory(&format!("{}/{}", src, name), dst.as_ref(), private_key)?);
+            ans.append(&mut self.decrypt_dir(&format!("{}/{}", src, name), dst.as_ref(), decryptor)?);
         }
         Ok(ans)
     }
 
+    pub fn decrypt_directory<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey) -> EncryptedFileResult<Vec<(String, DecryptFileResult)>> {
+        self.decrypt_directory_callback(src, dst, private_key, |_, _, _| {})
+    }
+
+    pub fn decrypt_directory_callback<P, C>(&self, src: &str, dst: P, private_key: &PrivateKey, mut callback: C) -> EncryptedFileResult<Vec<(String, DecryptFileResult)>>
+        where P: AsRef<Path>,
+        C: FnMut(&str, &Path, &DecryptFileResult) {
+        self.decrypt_dir(src, dst, &mut |src, dst| {
+            let ans = self.decrypt_file(src, File::create(dst)?, private_key);
+            callback(src, dst, &ans);
+            ans
+        })
+    }
+
     pub fn decrypt_directory_and_verify<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, public_key: &RsaPublicKey) -> EncryptedFileResult<Vec<(String, DecryptFileAndVerifyResult)>> {
-        if self.get_directory_content_soft().is_none() {
-            return Err(EncryptedFileError::ContentIsUnknown.into());
-        }
-        if self.get_directory_content_soft().unwrap().get_dir(src).is_none() {
-            return Err(EncryptedFileError::DirectoryDoesNotExist.into());
-        }
-        if !dst.as_ref().is_dir() {
-            return Err(EncryptedFileError::ThisIsNotADirectory.into());
-        }
-        let dst: Box<Path> = Box::from(dst.as_ref().join(Self::str_path_last_element(src)).as_path());
-        let mut ans = Vec::new();
-        let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
-        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
-            let output_file = File::create(dst.join(name));
-            if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file_and_verify(&format!("{src}/{name}"), output_file, private_key, public_key)));
-            }
-            else {
-                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
-            }
-        }
-        for (name, _) in directory_content.get_dir_iter() {
-            ans.append(&mut self.decrypt_directory_and_verify(&format!("{}/{}", src, name), dst.as_ref(), private_key, public_key)?);
-        }
-        Ok(ans)
+        self.decrypt_directory_and_verify_callback(src, dst, private_key, public_key, |_, _, _| {})
+    }
+
+    pub fn decrypt_directory_and_verify_callback<P, C>(&self, src: &str, dst: P, private_key: &PrivateKey, public_key: &RsaPublicKey, mut callback: C) -> EncryptedFileResult<Vec<(String, DecryptFileAndVerifyResult)>>
+        where P: AsRef<Path>,
+        C: FnMut(&str, &Path, &DecryptFileAndVerifyResult) {
+        self.decrypt_dir(src, dst, &mut |src, dst| {
+            let ans = self.decrypt_file_and_verify(src, File::create(dst)?, private_key, public_key);
+            callback(src, dst, &ans);
+            ans
+        })
     }
 
     #[cfg(feature = "signers-list")]
     pub fn decrypt_directory_and_find_signer<P: AsRef<Path>>(&self, src: &str, dst: P, private_key: &PrivateKey, signers_list: &SignersList) -> EncryptedFileResult<Vec<(String, DecryptFileAndFindSignerResult)>> {
-        if self.get_directory_content_soft().is_none() {
-            return Err(EncryptedFileError::ContentIsUnknown.into());
-        }
-        if self.get_directory_content_soft().unwrap().get_dir(src).is_none() {
-            return Err(EncryptedFileError::DirectoryDoesNotExist.into());
-        }
-        if !dst.as_ref().is_dir() {
-            return Err(EncryptedFileError::ThisIsNotADirectory.into());
-        }
-        let dst: Box<Path> = Box::from(dst.as_ref().join(Self::str_path_last_element(src)).as_path());
-        let mut ans = Vec::new();
-        let directory_content = self.directory_content.as_ref().unwrap().get_dir(src).ok_or(EncryptedFileError::DirectoryDoesNotExist)?;
-        for (name, _) in self.directory_content.as_ref().unwrap().get_files_iter() {
-            let output_file = File::create(dst.join(name));
-            if let Ok(output_file) = output_file {
-                ans.push((name.to_owned(), self.decrypt_file_and_find_signer(&format!("{src}/{name}"), output_file, private_key, signers_list)));
-            }
-            else {
-                ans.push((name.to_owned(), Err(output_file.unwrap_err().into())));
-            }
-        }
-        for (name, _) in directory_content.get_dir_iter() {
-            ans.append(&mut self.decrypt_directory_and_find_signer(&format!("{}/{}", src, name), dst.as_ref(), private_key, signers_list)?);
-        }
-        Ok(ans)
+        self.decrypt_directory_and_find_signer_callback(src, dst, private_key, signers_list, |_, _, _| {})
+    }
+
+    #[cfg(feature = "signers-list")]
+    pub fn decrypt_directory_and_find_signer_callback<P, C>(&self, src: &str, dst: P, private_key: &PrivateKey, signers_list: &SignersList, mut callback: C) -> EncryptedFileResult<Vec<(String, DecryptFileAndFindSignerResult)>>
+        where P: AsRef<Path>,
+        C: FnMut(&str, &Path, &DecryptFileAndFindSignerResult) {
+        self.decrypt_dir(src, dst, &mut |src, dst| {
+            let ans = self.decrypt_file_and_find_signer(src, File::create(dst)?, private_key, signers_list);
+            callback(src, dst, &ans);
+            ans
+        })
     }
 
     // Impossible with current ways
