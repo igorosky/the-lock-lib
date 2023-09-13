@@ -6,6 +6,39 @@ pub use std::io::Error as IOError;
 pub use rand::Error as RngError;
 pub use chacha20poly1305::aead::Error as ChaChaError;
 
+pub type SymmetricCipherResult<T> = Result<T, SymmetricCipherError>;
+
+#[derive(Debug)]
+pub enum SymmetricCipherError {
+    ConvertionError,
+    IOError(IOError),
+    XChaCha20Poly1305Error(ChaChaError),
+}
+
+impl Display for SymmetricCipherError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::ConvertionError => "ConvertionError".to_string(),
+            Self::IOError(err) => err.to_string(),
+            Self::XChaCha20Poly1305Error(err) => err.to_string(),
+        })
+    }
+}
+
+impl std::error::Error for SymmetricCipherError { }
+
+impl From<IOError> for SymmetricCipherError {
+    fn from(value: IOError) -> Self {
+        Self::IOError(value)
+    }
+}
+
+impl From<ChaChaError> for SymmetricCipherError {
+    fn from(value: ChaChaError) -> Self {
+        Self::XChaCha20Poly1305Error(value)
+    }
+}
+
 pub type AsymetricKeyResult<T> = Result<T, AsymetricKeyError>;
 
 #[derive(Debug)]
@@ -71,19 +104,6 @@ impl Display for ContentError {
         })
     }
 }
-
-impl std::error::Error for ContentError { }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConvertionError;
-
-impl Display for ConvertionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Len should be equal to 51")
-    }
-}
-
-impl std::error::Error for ConvertionError { }
 
 #[cfg(feature = "signers-list")]
 mod signers_list_error {
@@ -153,7 +173,7 @@ pub enum EncryptedFileError {
     DirectoryContentError(ContentError),
     RSAError(RSAError),
     IOError(IOError),
-    SymmetricKeyConvertionError,
+    SymmetricCipherError(SymmetricCipherError),
     AsymetricKeyError(AsymetricKeyError),
 }
 
@@ -181,9 +201,9 @@ impl From<IOError> for EncryptedFileError {
     }
 }
 
-impl From<ConvertionError> for EncryptedFileError {
-    fn from(_: ConvertionError) -> Self {
-        Self::SymmetricKeyConvertionError
+impl From<SymmetricCipherError> for EncryptedFileError {
+    fn from(value: SymmetricCipherError) -> Self {
+        Self::SymmetricCipherError(value)
     }
 }
 
@@ -210,7 +230,7 @@ impl Display for EncryptedFileError {
             EncryptedFileError::DirectoryContentError(err) => err.to_string(),
             EncryptedFileError::RSAError(err) => err.to_string(),
             EncryptedFileError::IOError(err) => err.to_string(),
-            EncryptedFileError::SymmetricKeyConvertionError => "SymmetricKeyConvertionError".to_owned(),
+            EncryptedFileError::SymmetricCipherError(err) => err.to_string(),
             EncryptedFileError::AsymetricKeyError(err) => err.to_string(),
         })
     }

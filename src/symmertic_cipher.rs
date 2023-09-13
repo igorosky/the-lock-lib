@@ -9,7 +9,7 @@ use sha2::{Sha512, Digest};
 use chacha20poly1305::Key;
 use rand::rngs::OsRng;
 
-use crate::error::ConvertionError;
+use crate::error::{SymmetricCipherResult, SymmetricCipherError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymmetricCipher {
@@ -44,7 +44,7 @@ impl SymmetricCipher {
         self.buffor_size
     }
 
-    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> Result<Box<[u8; 64]>, std::io::Error> {
+    pub fn encrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], mut src: I, dst: &mut O) -> SymmetricCipherResult<Box<[u8; 64]>> {
         let mut cipher = EncryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
         let buffor_size = self.buffor_size;
         let mut buffor = vec![0; buffor_size];
@@ -73,7 +73,7 @@ impl SymmetricCipher {
         Ok(ans)
     }
 
-    pub fn decrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> Result<Box<[u8; 64]>, std::io::Error> {
+    pub fn decrypt_file<I: Read, O: Write>(&self, key: &SymmetricKey, associated_data: &[u8], src: &mut I, dst: &mut O) -> SymmetricCipherResult<Box<[u8; 64]>> {
         let mut cipher = DecryptorBE32::from_aead(XChaCha20Poly1305::new(&key.get_key()), key.get_nonce().as_ref().into());
         let buffor_size = self.buffor_size + 16;    // + 16 becouse thats what chacha adds - magic value
         let mut buffor = vec![0; buffor_size];
@@ -81,7 +81,7 @@ impl SymmetricCipher {
         let mut hasher = Sha512::new();
         loop {
             if count == buffor.len() {
-                cipher.decrypt_next_in_place(associated_data, &mut buffor).unwrap();
+                cipher.decrypt_next_in_place(associated_data, &mut buffor)?;
                 dst.write(&buffor)?;
                 hasher.update(&buffor);
                 buffor.resize(buffor_size, 0);
@@ -89,7 +89,7 @@ impl SymmetricCipher {
             }
             else if count != 0 {
                 buffor.resize(count, 0);
-                cipher.decrypt_last_in_place(associated_data, &mut buffor).unwrap();
+                cipher.decrypt_last_in_place(associated_data, &mut buffor)?;
                 dst.write(&buffor)?;
                 hasher.update(&buffor);
                 break;
@@ -133,11 +133,11 @@ impl From<[u8; SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE]> for SymmetricKey {
 }
 
 impl TryFrom<Vec<u8>> for SymmetricKey {
-    type Error = ConvertionError;
+    type Error = SymmetricCipherError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
-            Err(ConvertionError)
+            Err(SymmetricCipherError::ConvertionError)
         }
         else {
             Ok(Self {
@@ -157,11 +157,11 @@ impl TryFrom<Vec<u8>> for SymmetricKey {
 }
 
 impl TryFrom<&Vec<u8>> for SymmetricKey {
-    type Error = ConvertionError;
+    type Error = SymmetricCipherError;
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
-            Err(ConvertionError)
+            Err(SymmetricCipherError::ConvertionError)
         }
         else {
             Ok(Self {
@@ -181,11 +181,11 @@ impl TryFrom<&Vec<u8>> for SymmetricKey {
 }
 
 impl TryFrom<&[u8]> for SymmetricKey {
-    type Error = ConvertionError;
+    type Error = SymmetricCipherError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() != SYMMETRIC_KEY_SIZE + SYMMETRIC_NONE_SIZE {
-            Err(ConvertionError)
+            Err(SymmetricCipherError::ConvertionError)
         }
         else {
             Ok(Self {

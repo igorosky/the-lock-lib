@@ -82,12 +82,13 @@ impl SingleEncryptedFile {
 pub struct DirectoryContent {
     files: BTreeMap<String, SingleEncryptedFile>,
     directories: BTreeMap<String, DirectoryContent>,
+    total_file_count: usize,
 }
 
 impl Default for DirectoryContent {
     #[inline]
     fn default() -> Self {
-        Self { files: BTreeMap::new(), directories: BTreeMap::new() }
+        Self { files: BTreeMap::new(), directories: BTreeMap::new(), total_file_count: 0 }
     }
 }
 
@@ -214,9 +215,14 @@ impl DirectoryContent {
         match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
                 self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
+                self.total_file_count += 1;
                 Ok(self.files.get_mut(next_part).unwrap())
             },
-            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file(rest),
+            (false, _, true) => {
+                let ans = self.directories.get_mut(next_part).unwrap().add_file(rest);
+                self.total_file_count += ans.is_ok() as usize;
+                ans
+            }
             (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentError::FileAlreadyExists),
             (false, _, false) => Err(ContentError::DirectoryDoesNotExist),
@@ -231,12 +237,22 @@ impl DirectoryContent {
         match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
             (true, false, false) => {
                 self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
+                self.total_file_count += 1;
                 Ok(self.files.get_mut(next_part).unwrap())
             },
-            (false, _, true) => self.directories.get_mut(next_part).unwrap().add_file_with_path(rest),
+            (false, _, true) => {
+                let ans = self.directories.get_mut(next_part).unwrap().add_file_with_path(rest);
+                self.total_file_count += ans.is_ok() as usize;
+                ans
+            }
             (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
             (true, true, false) => Err(ContentError::FileAlreadyExists),
-            (false, _, false) => self.add_directory(next_part).unwrap().add_file_with_path(rest),
+            (false, _, false) => {
+                let _ = self.add_directory(next_part);
+                let ans = self.directories.get_mut(next_part).unwrap().add_file_with_path(rest);
+                self.total_file_count += ans.is_ok() as usize;
+                ans
+            }
         }
     }
 
@@ -308,5 +324,10 @@ impl DirectoryContent {
             (false, _, Some(dir)) => dir.exists(rest),
             _ => false,
         }
+    }
+
+    #[inline]
+    pub fn get_total_file_count(&self) -> usize {
+        self.total_file_count
     }
 }

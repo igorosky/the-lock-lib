@@ -302,13 +302,25 @@ mod lib_tests {
         assert!(content.get_file("folder/dir/sdir/file2").is_some());
         remove_dir_all(dir_to_encrypt).unwrap();
         let mut count = 0;
-        for result in ef.decrypt_directory_callback("folder/dir", tmp_dir.path(), &key, |_, _, _| count += 1).unwrap() {
+        for result in ef.decrypt_directory_callback(
+            "folder/dir",
+            tmp_dir.path(),
+            &key,
+            |count| assert_eq!(count, 5),
+            |_, _, _| count += 1,
+            |good| assert!(good)).unwrap() {
             assert!(result.1.unwrap());
         }
         assert_eq!(count, 5);
         count = 0;
         create_dir(tmp_dir.path().join("output")).unwrap();
-        for result in ef.decrypt_directory_callback("folder/dir", tmp_dir.path().join("output"), &key, |_, _, _| count += 1).unwrap() {
+        for result in ef.decrypt_directory_callback(
+            "folder/dir",
+            tmp_dir.path().join("output"),
+            &key,
+            |count| assert_eq!(5, count),
+            |_, _, _| count += 1,
+            |good| assert!(good)).unwrap() {
             assert!(result.1.unwrap());
         }
         assert_eq!(count, 5);
