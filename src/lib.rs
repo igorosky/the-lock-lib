@@ -302,6 +302,17 @@ impl EncryptedFile {
             Ok(ans)
     }
 
+    fn count_files<P: AsRef<Path>>(path: P) -> EncryptedFileResult<usize> {
+        let mut ans = 0;
+        for obj in path.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()) {
+            ans += match obj.path().is_dir() {
+                true => Self::count_files(obj.path())?,
+                false => 1,
+            }
+        }
+        Ok(ans)
+    }
+
     pub fn add_directory<P: AsRef<Path>>(&mut self, src: P, dst: &str, public_key: &PublicKey) -> EncryptedFileResult<Vec<(Box<Path>, EncryptedFileResult<()>)>> {
         self.add_directory_callback(src, dst, public_key, |_| {}, |_, _, _| {}, |_| {})
     }
@@ -311,7 +322,7 @@ impl EncryptedFile {
         B: FnOnce(usize),
         E: FnMut(&str, &str, &EncryptedFileResult<()>),
         A: FnOnce(bool) {
-        before(src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()).count());
+        before(Self::count_files(src.as_ref())?);
         let ans = self.add_dir(src, dst, &mut |s, src, dst_path| {
             let file = File::open(src)?;
             let ans = match file.metadata() {
@@ -338,7 +349,7 @@ impl EncryptedFile {
         B: FnOnce(usize),
         E: FnMut(&str, &str, &EncryptedFileResult<()>),
         A: FnOnce(bool) {
-        before(src.as_ref().read_dir()?.filter(|path| path.is_ok()).map(|path| path.unwrap()).count());
+        before(Self::count_files(src.as_ref())?);
         let ans = self.add_dir(src, dst, &mut |s, src, dst_path| {
             let file = File::open(src)?;
             let ans = match file.metadata() {
