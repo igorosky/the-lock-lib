@@ -6,6 +6,23 @@ pub use std::io::Error as IOError;
 pub use rand::Error as RngError;
 pub use chacha20poly1305::aead::Error as ChaChaError;
 
+pub type DirectoryContentPathResult<T> = Result<T, DirectoryContentPathError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DirectoryContentPathError {
+    ElementCannotBeEmpty,
+}
+
+impl Display for DirectoryContentPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::ElementCannotBeEmpty => "ElementCannotBeEmpty",
+        }.to_string())
+    }
+}
+
+impl std::error::Error for DirectoryContentPathError { }
+
 pub type SymmetricCipherResult<T> = Result<T, SymmetricCipherError>;
 
 #[derive(Debug)]

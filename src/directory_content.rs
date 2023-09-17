@@ -3,7 +3,92 @@ use std::collections::{BTreeMap, btree_map::Iter};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
 
-use crate::error::{ContentError, DirectoryContentResult};
+use crate::error::{ContentError, DirectoryContentResult, DirectoryContentPathResult, DirectoryContentPathError};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectoryContentPath(Vec<String>);
+
+impl Default for DirectoryContentPath {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl DirectoryContentPath {
+    fn verify(s: &str) -> DirectoryContentPathResult<String> {
+        let mut ans = String::with_capacity(s.len());
+        for c in s.trim().chars() {
+            if !c.is_ascii() || c.is_ascii_control() || c == '/' || c == '\\' {
+                continue;
+            }
+            ans.push(c);
+        }
+        if ans.is_empty() {
+            return Err(DirectoryContentPathError::ElementCannotBeEmpty);
+        }
+        Ok(ans)
+    }
+    
+    pub fn file_name(&self) -> Option<&str> {
+        self.0.last().map(|v| v.as_str())
+    }
+
+    pub fn add(&mut self, element: &str) -> DirectoryContentPathResult<()> {
+        self.0.push(Self::verify(element)?);
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl ToString for DirectoryContentPath {
+    fn to_string(&self) -> String {
+        let mut ans = String::new();
+        if let Some(first) = self.0.first() {
+            ans.push_str(first);
+        }
+        for path in self.0.iter().skip(1) {
+            ans.push('/');
+            ans.push_str(path);
+        }
+        ans
+    }
+}
+
+impl From<String> for DirectoryContentPath {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+impl From<&str> for DirectoryContentPath {
+    fn from(value: &str) -> Self {
+        let mut ans = Self::default();
+        let mut next = String::new();
+        for c in value.chars() {
+            if c == '/' || c == '\\' {
+                if !next.is_empty() {
+                    let _ = ans.add(&next);
+                    next.clear();
+                }
+                continue;
+            }
+            next.push(c);
+        }
+        ans
+    }
+}
+
+impl IntoIterator for DirectoryContentPath {
+    type IntoIter = std::vec::IntoIter<String>;
+    type Item = String;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

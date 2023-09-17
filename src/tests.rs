@@ -333,7 +333,7 @@ mod lib_tests {
 }
 
 mod directory_content_tests {
-    use crate::directory_content::DirectoryContent;
+    use crate::{directory_content::{DirectoryContent, DirectoryContentPath}, error::DirectoryContentPathError};
 
     #[test]
     fn cration() {
@@ -412,6 +412,23 @@ mod directory_content_tests {
         assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
         assert!(dir.exists("/"));
         assert!(dir.get_dir("/").is_some());
+    }
+
+    #[test]
+    fn directory_content_path() {
+        let mut x = DirectoryContentPath::default();
+        let y = DirectoryContentPath::from("//a/b/\\c//");
+        x.add("a").unwrap();
+        x.add("b").unwrap();
+        assert_eq!(DirectoryContentPathError::ElementCannotBeEmpty, x.add(" ").unwrap_err());
+        x.add("c").unwrap();
+        assert_eq!(x, y);
+        assert_eq!("a/b/c".to_owned(), x.to_string());
+        let mut iter = y.into_iter();
+        assert_eq!(Some("a".to_owned()), iter.next());
+        assert_eq!(Some("b".to_owned()), iter.next());
+        assert_eq!(Some("c".to_owned()), iter.next());
+        assert_eq!(None, iter.next());
     }
 }
 
