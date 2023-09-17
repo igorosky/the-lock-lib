@@ -33,7 +33,7 @@ impl DirectoryContentPath {
         self.0.last().map(|v| v.as_str())
     }
 
-    pub fn add(&mut self, element: &str) -> DirectoryContentPathResult<()> {
+    pub fn push(&mut self, element: &str) -> DirectoryContentPathResult<()> {
         self.0.push(Self::verify(element)?);
         Ok(())
     }
@@ -41,19 +41,47 @@ impl DirectoryContentPath {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    pub fn root(&self) -> Option<&str> {
+        self.0.first().map(|v| v.as_str())
+    }
+
+    pub fn get(&self, n: usize) -> Option<&str> {
+        self.0.get(n).map(|v| v.as_str())
+    }
+
+    pub fn append(&mut self, mut other: Self) {
+        self.0.append(&mut other.0);
+    }
+
+    pub fn pop(&mut self) -> Option<String> {
+        self.0.pop()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.into_iter()
+    }
 }
 
-impl ToString for DirectoryContentPath {
-    fn to_string(&self) -> String {
-        let mut ans = String::new();
-        if let Some(first) = self.0.first() {
-            ans.push_str(first);
-        }
-        for path in self.0.iter().skip(1) {
-            ans.push('/');
-            ans.push_str(path);
-        }
-        ans
+impl<'a> Into<&'a [String]> for &'a DirectoryContentPath {
+    fn into(self) -> &'a [String] {
+        self.0.as_slice()
+    }
+}
+
+impl std::fmt::Display for DirectoryContentPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", {
+            let mut ans = String::new();
+            if let Some(first) = self.0.first() {
+                ans.push_str(first);
+            }
+            for path in self.0.iter().skip(1) {
+                ans.push('/');
+                ans.push_str(path);
+            }
+            ans
+        })
     }
 }
 
@@ -70,12 +98,15 @@ impl From<&str> for DirectoryContentPath {
         for c in value.chars() {
             if c == '/' || c == '\\' {
                 if !next.is_empty() {
-                    let _ = ans.add(&next);
+                    let _ = ans.push(&next);
                     next.clear();
                 }
                 continue;
             }
             next.push(c);
+        }
+        if !next.is_empty() {
+            let _ = ans.push(&next);
         }
         ans
     }
@@ -87,6 +118,15 @@ impl IntoIterator for DirectoryContentPath {
     
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a DirectoryContentPath {
+    type IntoIter = std::slice::Iter<'a, String>;
+    type Item = &'a String;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
@@ -183,161 +223,156 @@ impl DirectoryContent {
         Self::default()
     }
 
-    fn trim_path(mut str: &str) -> &str {
-        let mut p = 0;
-        for c in str.chars() {
-            if c != '\\' && c != '/' {
-                break;
+    pub fn get_dir(&self, path: &DirectoryContentPath) -> Option<&DirectoryContent> {
+        self._get_dir(path.into())
+    }
+
+    fn _get_dir(&self, path: &[String]) -> Option<&DirectoryContent> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.directories.get(next_part)) {
+                (true, Some(dir)) => Some(dir),
+                (false, Some(dir)) => dir._get_dir(path.get(1..).expect("Check if size is >= 1")),
+                (_, None) => None,
             }
-            p += 1;
         }
-        str = str.get(p..).unwrap();
-        p = str.len();
-        for c in str.chars().rev() {
-            if c != '\\' && c != '/' {
-                break;
+        else {
+            Some(self)
+        }
+    }
+
+    pub fn get_dir_mut(&mut self, path: &DirectoryContentPath) -> Option<&mut DirectoryContent> {
+        self._get_dir_mut(path.into())
+    }
+
+    fn _get_dir_mut(&mut self, path: &[String]) -> Option<&mut DirectoryContent> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.directories.get_mut(next_part)) {
+                (true, Some(dir)) => Some(dir),
+                (false, Some(dir)) => dir._get_dir_mut(path.get(1..).expect("Check if size is >= 1")),
+                (_, None) => None,
             }
-            p -= 1;
         }
-        str = str.get(..p).unwrap();
-        str
+        else {
+            Some(self)
+        }
     }
 
-    fn get_next_and_rest(mut path: &str) -> (&str, &str) {
-        path = Self::trim_path(path);
-        let mut q = 0;
-        for c in path.chars() {
-            if c == '/' || c == '\\' {
-                break;
+    pub fn get_file(&self, path: &DirectoryContentPath) -> Option<&SingleEncryptedFile> {
+        self._get_file(path.into())
+    }
+
+    fn _get_file(&self, path: &[String]) -> Option<&SingleEncryptedFile> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.files.get(next_part), self.directories.get(next_part)) {
+                (true, Some(file), _) => Some(file),
+                (false, _, Some(dir)) => dir._get_file(path.get(1..).expect("Check if size is > 1")),
+                _ => None,
             }
-            q += 1;
         }
-        let mut p = q;
-        for c in path.chars().skip(q) {
-            if c != '/' && c != '\\' {
-                break;
+        else {
+            None
+        }
+    }
+
+    pub(crate) fn get_file_mut(&mut self, path: &DirectoryContentPath) -> Option<&mut SingleEncryptedFile> {
+        self._get_file_mut(path.into())
+    }
+
+    fn _get_file_mut(&mut self, path: &[String]) -> Option<&mut SingleEncryptedFile> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.files.get_mut(next_part), self.directories.get_mut(next_part)) {
+                (true, Some(file), _) => Some(file),
+                (false, _, Some(dir)) => dir._get_file_mut(path.get(1..).expect("Check if size is > 1")),
+                _ => None,
             }
-            p += 1;
         }
-        (path.get(..q).unwrap(), path.get(p..).unwrap())
-    }
-
-    pub fn get_path_as_vec(path: &str) -> Vec<&str> {
-        let mut ans = Vec::new();
-        let (mut next, mut rest) = Self::get_next_and_rest(path);
-        ans.push(next);
-        while !rest.is_empty() {
-            (next, rest) = Self::get_next_and_rest(rest);
-            ans.push(next);
-        }
-        ans
-    }
-
-    pub fn get_dir(&self, path: &str) -> Option<&DirectoryContent> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return Some(self);
-        }
-        match (rest.is_empty(), self.directories.get(next_part)) {
-            (true, Some(dir)) => Some(dir),
-            (false, Some(dir)) => dir.get_dir(rest),
-            (_, None) => None,
-        }
-    }
-
-    pub fn get_dir_mut(&mut self, path: &str) -> Option<&mut DirectoryContent> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return Some(self);
-        }
-        match (rest.is_empty(), self.directories.get_mut(next_part)) {
-            (true, Some(dir)) => Some(dir),
-            (false, Some(dir)) => dir.get_dir_mut(rest),
-            (_, None) => None,
-        }
-    }
-
-    pub fn get_file(&self, path: &str) -> Option<&SingleEncryptedFile> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.files.get(next_part), self.directories.get(next_part)) {
-            (true, Some(file), _) => Some(file),
-            (false, _, Some(dir)) => dir.get_file(rest),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn get_file_mut(&mut self, path: &str) -> Option<&mut SingleEncryptedFile> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        match (rest.is_empty(), self.files.get_mut(next_part), self.directories.get_mut(next_part)) {
-            (true, Some(file), _) => Some(file),
-            (false, _, Some(dir)) => dir.get_file_mut(rest),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn add_directory(&mut self, path: &str) -> DirectoryContentResult<&mut DirectoryContent> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return Ok(self);
-        }
-        match (self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
-            (_, true) => self.directories.get_mut(next_part).unwrap().add_directory(rest),
-            (false, false) => {
-                self.directories.insert(next_part.to_owned(), DirectoryContent::new());
-                self.directories.get_mut(next_part).unwrap().add_directory(rest)
-            },
-            (true, false) => Err(ContentError::FileAlreadyExists),
+        else {
+            None
         }
     }
 
     // Dead code
     #[cfg(test)]
-    pub(crate) fn add_file(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return Err(ContentError::NameCanNotBeEmpty);
-        }
-        match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
-            (true, false, false) => {
-                self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
-                self.total_file_count += 1;
-                Ok(self.files.get_mut(next_part).unwrap())
-            },
-            (false, _, true) => {
-                let ans = self.directories.get_mut(next_part).unwrap().add_file(rest);
-                self.total_file_count += ans.is_ok() as usize;
-                ans
+    pub(crate) fn add_directory(&mut self, path: &DirectoryContentPath) -> DirectoryContentResult<&mut DirectoryContent> {
+        self._add_directory(path.into())
+    }
+
+    fn _add_directory(&mut self, path: &[String]) -> DirectoryContentResult<&mut DirectoryContent> {
+        if let Some(next_part) = path.first() {
+            match (self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
+                (_, true) => self.directories.get_mut(next_part).unwrap()._add_directory(path.get(1..).expect("Check if size is >= 1")),
+                (false, false) => {
+                    self.directories.insert(next_part.to_owned(), DirectoryContent::new());
+                    self.directories.get_mut(next_part).unwrap()._add_directory(path.get(1..).expect("Check if size is >= 1"))
+                },
+                (true, false) => Err(ContentError::FileAlreadyExists),
             }
-            (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
-            (true, true, false) => Err(ContentError::FileAlreadyExists),
-            (false, _, false) => Err(ContentError::DirectoryDoesNotExist),
+        }
+        else {
+            Ok(self)
         }
     }
 
-    pub(crate) fn add_file_with_path(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return Err(ContentError::NameCanNotBeEmpty);
+    // Dead code
+    #[cfg(test)]
+    pub(crate) fn add_file(&mut self, path: &DirectoryContentPath) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+        self._add_file(path.into())
+    }
+
+    // Dead code
+    #[cfg(test)]
+    fn _add_file(&mut self, path: &[String]) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
+                (true, false, false) => {
+                    self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
+                    self.total_file_count += 1;
+                    Ok(self.files.get_mut(next_part).unwrap())
+                },
+                (false, _, true) => {
+                    let ans = self.directories.get_mut(next_part).unwrap()._add_file(path.get(1..).expect("Check if size is >= 1"));
+                    self.total_file_count += ans.is_ok() as usize;
+                    ans
+                }
+                (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
+                (true, true, false) => Err(ContentError::FileAlreadyExists),
+                (false, _, false) => Err(ContentError::DirectoryDoesNotExist),
+            }
         }
-        match (rest.is_empty(), self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
-            (true, false, false) => {
-                self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
-                self.total_file_count += 1;
-                Ok(self.files.get_mut(next_part).unwrap())
-            },
-            (false, _, true) => {
-                let ans = self.directories.get_mut(next_part).unwrap().add_file_with_path(rest);
-                self.total_file_count += ans.is_ok() as usize;
-                ans
+        else {
+            Err(ContentError::NameCanNotBeEmpty)
+        }
+    }
+
+    pub(crate) fn add_file_with_path(&mut self, path: &DirectoryContentPath) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+        self._add_file_with_path(path.into())
+    }
+
+    fn _add_file_with_path(&mut self, path: &[String]) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.files.contains_key(next_part), self.directories.contains_key(next_part)) {
+                (true, false, false) => {
+                    self.files.insert(next_part.to_owned(), SingleEncryptedFile::new());
+                    self.total_file_count += 1;
+                    Ok(self.files.get_mut(next_part).unwrap())
+                },
+                (false, _, true) => {
+                    let ans = self.directories.get_mut(next_part).unwrap()._add_file_with_path(path.get(1..).expect("Check if size is > 1"));
+                    self.total_file_count += ans.is_ok() as usize;
+                    ans
+                }
+                (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
+                (true, true, false) => Err(ContentError::FileAlreadyExists),
+                (false, _, false) => {
+                    let _ = self._add_directory(&[next_part.to_owned()]); // TODO delete useless copying
+                    let ans = self.directories.get_mut(next_part).unwrap()._add_file_with_path(path.get(1..).expect("Check if size is > 1"));
+                    self.total_file_count += ans.is_ok() as usize;
+                    ans
+                }
             }
-            (true, _, true) => Err(ContentError::DirectoryAlreadyExists),
-            (true, true, false) => Err(ContentError::FileAlreadyExists),
-            (false, _, false) => {
-                let _ = self.add_directory(next_part);
-                let ans = self.directories.get_mut(next_part).unwrap().add_file_with_path(rest);
-                self.total_file_count += ans.is_ok() as usize;
-                ans
-            }
+        }
+        else {
+            Err(ContentError::NameCanNotBeEmpty)
         }
     }
 
@@ -352,7 +387,7 @@ impl DirectoryContent {
     //     // todo!("Optimize it somehow")
     // }
 
-    pub(crate) fn get_or_create_file_mut(&mut self, path: &str) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+    pub(crate) fn get_or_create_file_mut(&mut self, path: &DirectoryContentPath) -> DirectoryContentResult<&mut SingleEncryptedFile> {
         if self.get_file(path).is_some() {
             Ok(self.get_file_mut(path).unwrap())
         }
@@ -399,15 +434,20 @@ impl DirectoryContent {
     //     self.directories.iter_mut()
     // }
 
-    pub fn exists(&self, path: &str) -> bool {
-        let (next_part, rest) = Self::get_next_and_rest(path);
-        if next_part.is_empty() {
-            return true;
+    pub fn exists(&self, path: &DirectoryContentPath) -> bool {
+        self._exists(path.into())
+    }
+
+    pub fn _exists(&self, path: &[String]) -> bool {
+        if let Some(next_part) = path.first() {
+            match (path.len() == 1, self.files.get(next_part), self.directories.get(next_part)) {
+                (true, Some(_), _) | (true, None, Some(_)) => true,
+                (false, _, Some(dir)) => dir._exists(path.get(1..).expect("Check if len is >= 1")),
+                _ => false,
+            }
         }
-        match (rest.is_empty(), self.files.get(next_part), self.directories.get(next_part)) {
-            (true, Some(_), _) | (true, None, Some(_)) => true,
-            (false, _, Some(dir)) => dir.exists(rest),
-            _ => false,
+        else {
+            true
         }
     }
 

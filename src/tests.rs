@@ -93,7 +93,7 @@ mod lib_tests {
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &key.into()).unwrap();
+        ef.add_file(File::open(mock_file.path()).unwrap(), &DirectoryContentPath::from("test/testfile.txt"), &key.into()).unwrap();
         ef.get_directory_content().unwrap();
     }
 
@@ -103,8 +103,9 @@ mod lib_tests {
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        ef.add_file(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into()).unwrap();
-        assert!(ef.decrypt_file("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key).unwrap());
+        let dc = DirectoryContentPath::from("test/testfile.txt");
+        ef.add_file(File::open(mock_file.path()).unwrap(), &dc, &(&key).into()).unwrap();
+        assert!(ef.decrypt_file(&dc, File::create(mock_file.path()).unwrap(), &key).unwrap());
         ef.get_directory_content().unwrap();
         mock_file.validate().unwrap();
     }
@@ -115,8 +116,9 @@ mod lib_tests {
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
-        let (dig, sig) = ef.decrypt_file_and_verify("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap();
+        let dc = DirectoryContentPath::from("test/testfile.txt");
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), &dc, &(&key).into(), &key.get_rsa_private_key()).unwrap();
+        let (dig, sig) = ef.decrypt_file_and_verify(&dc, File::create(mock_file.path()).unwrap(), &key, &key.get_rsa_public_key()).unwrap();
         assert!(dig);
         assert!(sig.is_ok());
         ef.get_directory_content().unwrap();
@@ -131,11 +133,12 @@ mod lib_tests {
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), key.get_rsa_private_key()).unwrap();
+        let dc = DirectoryContentPath::from("test/testfile.txt");
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), &dc, &(&key).into(), key.get_rsa_private_key()).unwrap();
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Rafał", &key.get_rsa_public_key()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
+        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer(&dc, File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
         assert!(digest_correctness);
         assert_eq!(Some("Rafał".to_owned()), signer_result);
         ef.get_directory_content().unwrap();
@@ -150,11 +153,12 @@ mod lib_tests {
         let mock_file = MockFile::new(tmp_dir.path().join("mock")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("archive")).expect("Creating new EncryptedFile");
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), "test/testfile.txt", &(&key).into(), &key.get_rsa_private_key()).unwrap();
+        let dc = DirectoryContentPath::from("test/testfile.txt");
+        ef.add_file_and_sign(File::open(mock_file.path()).unwrap(), &dc, &(&key).into(), &key.get_rsa_private_key()).unwrap();
         let mut signers_list = SignersList::new(signers_dir.path()).unwrap();
         signers_list.add_signer("Roman", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
         signers_list.add_signer("Rafał", &rsa::RsaPrivateKey::new(&mut OsRng, 2048).unwrap().to_public_key()).unwrap();
-        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer("test/testfile.txt", File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
+        let (digest_correctness, signer_result) = ef.decrypt_file_and_find_signer(&dc, File::create(mock_file.path()).unwrap(), &key, &signers_list).unwrap();
         assert!(digest_correctness);
         assert_eq!(None, signer_result);
         ef.get_directory_content().unwrap();
@@ -174,7 +178,7 @@ mod lib_tests {
         let _mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        assert!(ef.add_directory(dir_to_encrypt, "folder", &key.into()).is_ok());
+        assert!(ef.add_directory(dir_to_encrypt, DirectoryContentPath::from("folder"), &key.into()).is_ok());
     }
 
     // DeadCode
@@ -201,24 +205,25 @@ mod lib_tests {
         let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), DirectoryContentPath::from("folder"), &(&key).into()).unwrap() {
             if let Err(err) = result {
                 println!("{err} for {:?}", name);
                 panic!("abc");
             }
         }
         let content = ef.get_directory_content().unwrap();
-        assert!(content.get_file("folder/dir/file1").is_some());
-        assert!(content.get_file("folder/dir/file2").is_some());
-        assert!(content.get_file("folder/dir/file3").is_some());
-        assert!(content.get_file("folder/dir/sdir/file1").is_some());
-        assert!(content.get_file("folder/dir/sdir/file2").is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file1")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file2")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file3")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file1")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file2")).is_some());
         remove_dir_all(dir_to_encrypt).unwrap();
-        for result in ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap() {
+        let dc = DirectoryContentPath::from("folder/dir");
+        for result in ef.decrypt_directory(dc.clone(), tmp_dir.path(), &key).unwrap() {
             assert!(result.1.unwrap());
         }
         create_dir(tmp_dir.path().join("output")).unwrap();
-        for result in ef.decrypt_directory("folder/dir", tmp_dir.path().join("output"), &key).unwrap() {
+        for result in ef.decrypt_directory(dc, tmp_dir.path().join("output"), &key).unwrap() {
             assert!(result.1.unwrap());
         }
         mock_file1.validate().unwrap();
@@ -252,22 +257,22 @@ mod lib_tests {
         let _mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), DirectoryContentPath::from("folder"), &(&key).into()).unwrap() {
             if let Err(err) = result {
                 println!("{err} for {:?}", name);
                 panic!("abc");
             }
         }
         remove_dir_all(dir_to_encrypt).unwrap();
-        ef.delete_path(File::create(tmp_dir.path().join("file2")).unwrap(), &vec!["folder/dir/sdir".to_owned()]).unwrap();
+        ef.delete_path(File::create(tmp_dir.path().join("file2")).unwrap(), &vec![DirectoryContentPath::from("folder/dir/sdir").to_owned()]).unwrap();
         ef = EncryptedFile::new(tmp_dir.path().join("file2")).unwrap();
         let content = ef.get_directory_content().unwrap();
-        assert!(content.get_file("folder/dir/file1").is_some());
-        assert!(content.get_file("folder/dir/file2").is_some());
-        assert!(content.get_file("folder/dir/file3").is_some());
-        assert!(content.get_file("folder/dir/sdir/file1").is_none());
-        assert!(content.get_file("folder/dir/sdir/file2").is_none());
-        for result in ef.decrypt_directory("folder/dir", tmp_dir.path(), &key).unwrap() {
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file1")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file2")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file3")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file1")).is_none());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file2")).is_none());
+        for result in ef.decrypt_directory(DirectoryContentPath::from("folder/dir"), tmp_dir.path(), &key).unwrap() {
             assert!(result.1.unwrap());
         }
         mock_file1.validate().unwrap();
@@ -288,22 +293,23 @@ mod lib_tests {
         let mock_file5 = MockFile::new(dir_to_encrypt.join("sdir").join("file2")).unwrap();
         let mut ef = EncryptedFile::new(tmp_dir.path().join("file")).unwrap();
         let key = PrivateKey::new(KEY_SIZE).unwrap();
-        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), "folder", &(&key).into()).unwrap() {
+        for (name, result) in ef.add_directory(dir_to_encrypt.clone(), DirectoryContentPath::from("folder"), &(&key).into()).unwrap() {
             if let Err(err) = result {
                 println!("{err} for {:?}", name);
                 panic!("abc");
             }
         }
         let content = ef.get_directory_content().unwrap();
-        assert!(content.get_file("folder/dir/file1").is_some());
-        assert!(content.get_file("folder/dir/file2").is_some());
-        assert!(content.get_file("folder/dir/file3").is_some());
-        assert!(content.get_file("folder/dir/sdir/file1").is_some());
-        assert!(content.get_file("folder/dir/sdir/file2").is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file1")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file2")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/file3")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file1")).is_some());
+        assert!(content.get_file(&DirectoryContentPath::from("folder/dir/sdir/file2")).is_some());
         remove_dir_all(dir_to_encrypt).unwrap();
         let mut count = 0;
+        let src = DirectoryContentPath::from("folder/dir");
         for result in ef.decrypt_directory_callback(
-            "folder/dir",
+            src.clone(),
             tmp_dir.path(),
             &key,
             |count| assert_eq!(count, 5),
@@ -315,7 +321,7 @@ mod lib_tests {
         count = 0;
         create_dir(tmp_dir.path().join("output")).unwrap();
         for result in ef.decrypt_directory_callback(
-            "folder/dir",
+            src,
             tmp_dir.path().join("output"),
             &key,
             |count| assert_eq!(5, count),
@@ -338,90 +344,90 @@ mod directory_content_tests {
     #[test]
     fn cration() {
         let dir = DirectoryContent::new();
-        assert!(dir.get_dir("abc").is_none());
-        assert!(dir.get_file("abc").is_none());
-        assert!(dir.get_file("abc/abc").is_none());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/abc")).is_none());
     }
     
     #[test]
     fn dir_test() {
         let mut dir = DirectoryContent::new();
-        assert!(dir.add_directory("abc").is_ok());
-        assert!(dir.get_dir("abc").is_some());
-        assert!(dir.get_file("abc").is_none());
+        assert!(dir.add_directory(&DirectoryContentPath::from("abc")).is_ok());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
     }
     
     #[test]
     fn add_file_test() {
         let mut dir = DirectoryContent::new();
-        assert!(dir.add_file("abc/file").is_err());
-        assert!(dir.add_directory("abc").is_ok());
-        assert!(dir.add_file("abc/file").is_ok());
-        assert!(dir.get_dir("abc").is_some());
-        assert!(dir.get_file("abc").is_none());
-        assert!(dir.get_file("abc/file").is_some());
-        assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
+        assert!(dir.add_file(&DirectoryContentPath::from("abc/file")).is_err());
+        assert!(dir.add_directory(&DirectoryContentPath::from("abc")).is_ok());
+        assert!(dir.add_file(&DirectoryContentPath::from("abc/file")).is_ok());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/file")).is_some());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).unwrap().get_file(&DirectoryContentPath::from("file")).is_some());
     }
     
     #[test]
     fn add_file_with_path_test() {
         let mut dir = DirectoryContent::new();
-        assert!(dir.add_file_with_path("abc/file").is_ok());
-        assert!(dir.get_file("abc/file").is_some());
-        assert!(dir.add_directory("abc").is_ok());
-        assert!(dir.add_file("abc/file").is_err());
-        assert!(dir.get_dir("abc").is_some());
-        assert!(dir.get_file("abc").is_none());
-        assert!(dir.get_file("abc/file").is_some());
-        assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
+        assert!(dir.add_file_with_path(&DirectoryContentPath::from("abc/file")).is_ok());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/file")).is_some());
+        assert!(dir.add_directory(&DirectoryContentPath::from("abc")).is_ok());
+        assert!(dir.add_file(&DirectoryContentPath::from("abc/file")).is_err());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/file")).is_some());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).unwrap().get_file(&DirectoryContentPath::from("file")).is_some());
     }
     
     #[test]
     fn get_dir_mut() {
         let mut dir = DirectoryContent::new();
-        assert!(dir.add_file("abc/file").is_err());
-        assert!(dir.add_directory("abc").is_ok());
-        assert!(dir.get_dir_mut("abc").is_some());
-        assert!(dir.get_dir_mut("abc").unwrap().add_file("file").is_ok());
-        assert!(dir.get_dir("abc").is_some());
-        assert!(dir.get_file("abc").is_none());
-        assert!(dir.get_file("abc/file").is_some());
-        assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
+        assert!(dir.add_file(&DirectoryContentPath::from("abc/file")).is_err());
+        assert!(dir.add_directory(&DirectoryContentPath::from("abc")).is_ok());
+        assert!(dir.get_dir_mut(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_dir_mut(&DirectoryContentPath::from("abc")).unwrap().add_file(&DirectoryContentPath::from("file")).is_ok());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/file")).is_some());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).unwrap().get_file(&DirectoryContentPath::from("file")).is_some());
     }
 
     #[test]
     fn exists() {
         let mut dir = DirectoryContent::new();
-        assert!(dir.exists("/"));
-        assert!(dir.get_dir("/").is_some());
-        assert!(!dir.exists("abc/"));
-        assert!(!dir.exists("abc/file"));
-        assert!(dir.add_file("abc/file").is_err());
-        assert!(!dir.exists("abc/file"));
-        assert!(!dir.exists("abc/"));
-        assert!(dir.add_directory("abc").is_ok());
-        assert!(dir.exists("abc/"));
-        assert!(!dir.exists("abc/file"));
-        assert!(dir.get_dir_mut("abc").is_some());
-        assert!(dir.get_dir_mut("abc").unwrap().add_file("file").is_ok());
-        assert!(dir.get_dir("abc").is_some());
-        assert!(dir.get_file("abc").is_none());
-        assert!(dir.get_file("abc/file").is_some());
-        assert!(dir.exists("abc/"));
-        assert!(dir.exists("abc/file"));
-        assert!(dir.get_dir("abc").unwrap().get_file("file").is_some());
-        assert!(dir.exists("/"));
-        assert!(dir.get_dir("/").is_some());
+        assert!(dir.exists(&DirectoryContentPath::from("/")));
+        assert!(dir.get_dir(&DirectoryContentPath::from("/")).is_some());
+        assert!(!dir.exists(&DirectoryContentPath::from("abc/")));
+        assert!(!dir.exists(&DirectoryContentPath::from("abc/file")));
+        assert!(dir.add_file(&DirectoryContentPath::from("abc/file")).is_err());
+        assert!(!dir.exists(&DirectoryContentPath::from("abc/file")));
+        assert!(!dir.exists(&DirectoryContentPath::from("abc/")));
+        assert!(dir.add_directory(&DirectoryContentPath::from("abc")).is_ok());
+        assert!(dir.exists(&DirectoryContentPath::from("abc/")));
+        assert!(!dir.exists(&DirectoryContentPath::from("abc/file")));
+        assert!(dir.get_dir_mut(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_dir_mut(&DirectoryContentPath::from("abc")).unwrap().add_file(&DirectoryContentPath::from("file")).is_ok());
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).is_some());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc")).is_none());
+        assert!(dir.get_file(&DirectoryContentPath::from("abc/file")).is_some());
+        assert!(dir.exists(&DirectoryContentPath::from("abc/")));
+        assert!(dir.exists(&DirectoryContentPath::from("abc/file")));
+        assert!(dir.get_dir(&DirectoryContentPath::from("abc")).unwrap().get_file(&DirectoryContentPath::from("file")).is_some());
+        assert!(dir.exists(&DirectoryContentPath::from("/")));
+        assert!(dir.get_dir(&DirectoryContentPath::from("/")).is_some());
     }
 
     #[test]
     fn directory_content_path() {
         let mut x = DirectoryContentPath::default();
         let y = DirectoryContentPath::from("//a/b/\\c//");
-        x.add("a").unwrap();
-        x.add("b").unwrap();
-        assert_eq!(DirectoryContentPathError::ElementCannotBeEmpty, x.add(" ").unwrap_err());
-        x.add("c").unwrap();
+        x.push("a").unwrap();
+        x.push("b").unwrap();
+        assert_eq!(DirectoryContentPathError::ElementCannotBeEmpty, x.push(" ").unwrap_err());
+        x.push("c").unwrap();
         assert_eq!(x, y);
         assert_eq!("a/b/c".to_owned(), x.to_string());
         let mut iter = y.into_iter();
