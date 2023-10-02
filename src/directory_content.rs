@@ -388,6 +388,20 @@ impl DirectoryContent {
     // }
 
     pub(crate) fn get_or_create_file_mut(&mut self, path: &DirectoryContentPath) -> DirectoryContentResult<&mut SingleEncryptedFile> {
+        // {
+        //     if let Some(ans) = self.get_file_mut(path) {
+        //         return Ok(ans);
+        //     }
+        // }
+        // self.add_file_with_path(path)
+
+        // One of those should work
+
+        // match self.get_file_mut(path) {
+        //     Some(ans) => Ok(ans),
+        //     None => self.add_file_with_path(path),
+        // }
+
         if self.get_file(path).is_some() {
             Ok(self.get_file_mut(path).unwrap())
         }
